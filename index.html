@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World</title>
+    <title>Hello World (Protected)</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
     </style>
@@ -11,5 +11,59 @@
 <body>
     <h1>Hello, World! 🎉</h1>
     <p>You have successfully logged in.</p>
+    <button onclick="logout()">Logout</button>
+
+    <script>
+        const clientId = "106rj60g6n3nlnolgg0l8slksh";  
+        const region = "us-east-1";  // e.g., us-east-1
+        const redirectUri = "https://main.dfred9ck3nusf.amplifyapp.com/";  // Your return URL
+
+        async function exchangeCodeForToken(code) {
+            const tokenUrl = `https://${region}.amazoncognito.com/oauth2/token`;
+            const params = new URLSearchParams({
+                grant_type: "authorization_code",
+                client_id: clientId,
+                code: code,
+                redirect_uri: redirectUri
+            });
+
+            const response = await fetch(tokenUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: params
+            });
+
+            const data = await response.json();
+            if (data.id_token) {
+                localStorage.setItem("id_token", data.id_token);
+            }
+        }
+
+        function getCodeFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get("code");
+        }
+
+        async function checkAuth() {
+            let token = localStorage.getItem("id_token");
+            if (!token) {
+                const code = getCodeFromUrl();
+                if (code) {
+                    await exchangeCodeForToken(code);
+                } else {
+                    window.location.href = `https://${region}.amazoncognito.com/login?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}`;
+                }
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem("id_token");
+            window.location.href = `https://${region}.amazoncognito.com/logout?client_id=${clientId}&logout_uri=${redirectUri}`;
+        }
+
+        checkAuth();
+    </script>
 </body>
 </html>
