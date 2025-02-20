@@ -15,11 +15,12 @@
 
     <script>
         const clientId = "106rj60g6n3nlnolgg0l8slksh";  
-        const region = "us-east-1";  // e.g., us-east-1
-        const redirectUri = "https://main.dfred9ck3nusf.amplifyapp.com/";  // Your return URL
+        const region = "us-east-1";  
+        const domain = "us-east-1mg0mpng0d.auth.us-east-1.amazoncognito.com";
+        const redirectUri = "https://main.dfred9ck3nusf.amplifyapp.com/";  
 
         async function exchangeCodeForToken(code) {
-            const tokenUrl = `https://${region}.amazoncognito.com/oauth2/token`;
+            const tokenUrl = `https://${domain}/oauth2/token`;  // ✅ FIXED URL
             const params = new URLSearchParams({
                 grant_type: "authorization_code",
                 client_id: clientId,
@@ -38,6 +39,7 @@
             const data = await response.json();
             if (data.id_token) {
                 localStorage.setItem("id_token", data.id_token);
+                window.location.href = redirectUri;  // Redirect after storing token
             }
         }
 
@@ -53,14 +55,14 @@
                 if (code) {
                     await exchangeCodeForToken(code);
                 } else {
-                    window.location.href = `https://${region}.amazoncognito.com/login?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}`;
+                    window.location.href = `https://${domain}/login?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}`;
                 }
             }
         }
 
         function logout() {
             localStorage.removeItem("id_token");
-            window.location.href = `https://${region}.amazoncognito.com/logout?client_id=${clientId}&logout_uri=${redirectUri}`;
+            window.location.href = `https://${domain}/logout?client_id=${clientId}&logout_uri=${redirectUri}`;
         }
 
         checkAuth();
