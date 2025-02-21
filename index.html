@@ -3,69 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World (Protected)</title>
+    <title>Voice-Powered Social Media</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+        button { padding: 10px 20px; font-size: 16px; margin: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
-    <h1>Hello, World! 🎉</h1>
-    <p>You have successfully logged in.</p>
-    <button onclick="logout()">Logout</button>
+    <h1>Welcome to the Voice-Powered Social Media Platform! 🎤</h1>
+    <p>This is a basic setup. We will add voice functionality step by step.</p>
+    <button onclick="testAlert()">Click to Test</button>
 
     <script>
-        const clientId = "106rj60g6n3nlnolgg0l8slksh";  
-        const region = "us-east-1";  
-        const domain = "us-east-1mg0mpng0d.auth.us-east-1.amazoncognito.com";
-        const redirectUri = "https://main.dfred9ck3nusf.amplifyapp.com/";  
-
-        async function exchangeCodeForToken(code) {
-            const tokenUrl = `https://${domain}/oauth2/token`;  // ✅ FIXED URL
-            const params = new URLSearchParams({
-                grant_type: "authorization_code",
-                client_id: clientId,
-                code: code,
-                redirect_uri: redirectUri
-            });
-
-            const response = await fetch(tokenUrl, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded"
-                },
-                body: params
-            });
-
-            const data = await response.json();
-            if (data.id_token) {
-                localStorage.setItem("id_token", data.id_token);
-                window.location.href = redirectUri;  // Redirect after storing token
-            }
+        function testAlert() {
+            alert("AWS Amplify Hosting Works!");
         }
-
-        function getCodeFromUrl() {
-            const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get("code");
-        }
-
-        async function checkAuth() {
-            let token = localStorage.getItem("id_token");
-            if (!token) {
-                const code = getCodeFromUrl();
-                if (code) {
-                    await exchangeCodeForToken(code);
-                } else {
-                    window.location.href = `https://${domain}/login?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}`;
-                }
-            }
-        }
-
-        function logout() {
-            localStorage.removeItem("id_token");
-            window.location.href = `https://${domain}/logout?client_id=${clientId}&logout_uri=${redirectUri}`;
-        }
-
-        checkAuth();
     </script>
 </body>
 </html>
