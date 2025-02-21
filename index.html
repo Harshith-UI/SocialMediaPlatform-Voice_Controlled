@@ -55,21 +55,6 @@
             min-height: 100px;
         }
 
-        #debug-info {
-            margin-top: 20px;
-            padding: 15px;
-            background: #f0f0f0;
-            text-align: left;
-            white-space: pre-wrap;
-            border-radius: 5px;
-            border: 1px solid #ddd;
-            font-family: monospace;
-            font-size: 14px;
-            overflow-x: auto;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
         .navigation-buttons {
             margin: 20px 0;
         }
@@ -99,33 +84,15 @@
         <button onclick="submitPost()">Post</button>
     </div>
 
-    <div id="debug-info"></div>
-
     <script>
         let posts = [];
         let currentIndex = 0;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
-        function showDebug(message, data) {
-            const debugDiv = document.getElementById("debug-info");
-            const timestamp = new Date().toISOString();
-            let debugMessage = `\n[${timestamp}] ${message}\n`;
-            if (data) {
-                debugMessage += typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-            }
-            debugMessage += '\n';
-            debugDiv.innerHTML += debugMessage;
-            debugDiv.scrollTop = debugDiv.scrollHeight;
-        }
-
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
-                showDebug("Fetch response status:", response.status);
-                
                 const responseText = await response.text();
-                showDebug("Raw response:", responseText);
-                
                 const result = JSON.parse(responseText);
                 
                 let data;
@@ -139,14 +106,11 @@
                     posts = data.posts.reverse();
                     currentIndex = 0;
                     document.getElementById("post-content").innerText = posts[currentIndex].content;
-                    showDebug("Posts loaded:", posts);
                 } else {
                     document.getElementById("post-content").innerText = "No posts available!";
-                    showDebug("No posts found in response", data);
                 }
             } catch (error) {
                 console.error("Error fetching posts:", error);
-                showDebug("Error fetching posts:", error.toString());
                 document.getElementById("post-content").innerText = "Error loading posts.";
             }
         }
@@ -155,10 +119,8 @@
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
-                showDebug("Showing next post:", posts[currentIndex]);
             } else {
                 document.getElementById("post-content").innerText = "No more posts!";
-                showDebug("Reached end of posts", null);
             }
         }
 
@@ -166,56 +128,48 @@
             if (currentIndex > 0) {
                 currentIndex--;
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
-                showDebug("Showing previous post:", posts[currentIndex]);
             } else {
                 document.getElementById("post-content").innerText = "This is the first post!";
-                showDebug("Reached start of posts", null);
             }
         }
 
         async function submitPost() {
-    const content = document.getElementById("new-post").value.trim();
-    if (!content) {
-        alert("Post cannot be empty!");
-        return;
-    }
+            const content = document.getElementById("new-post").value.trim();
+            if (!content) {
+                alert("Post cannot be empty!");
+                return;
+            }
 
-    const postData = { content: content };
-    showDebug("Sending post data:", postData);
+            const postData = { content: content };
 
-    try {
-        const response = await fetch(apiUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
-            body: JSON.stringify(postData)
-        });
-        
-        showDebug("Response status:", response.status);
-        const responseText = await response.text();
-        showDebug("Raw response:", responseText);
-        
-        const result = JSON.parse(responseText);
-        
-        // Handle the response directly without additional parsing
-        if (result.error) {
-            throw new Error(result.error);
+            try {
+                const response = await fetch(apiUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    },
+                    body: JSON.stringify(postData)
+                });
+
+                const responseText = await response.text();
+                const result = JSON.parse(responseText);
+
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                alert("Post stored successfully!");
+                document.getElementById("new-post").value = "";
+
+                // Refresh posts
+                await fetchAllPosts();
+
+            } catch (error) {
+                console.error("Error posting:", error);
+                alert("Error posting: " + error.message);
+            }
         }
-        
-        alert("Post stored successfully!");
-        document.getElementById("new-post").value = "";
-        
-        // Refresh posts
-        await fetchAllPosts();
-        
-    } catch (error) {
-        console.error("Error posting:", error);
-        showDebug("Error posting:", error.toString());
-        alert("Error posting: " + error.message);
-    }
-}
 
         // Initial load of posts
         fetchAllPosts();
