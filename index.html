@@ -6,47 +6,33 @@
     <title>Voice-Powered Social Media</title>
 </head>
 <body>
-
     <h1>Voice-Powered Social Media App 🎤</h1>
     
     <div id="post-content">Loading...</div>
     
-    <div>
-        <button onclick="fetchPreviousPost()">Previous Post</button>
-        <button onclick="fetchNextPost()">Next Post</button>
-    </div>
+    <button onclick="fetchPreviousPost()">Previous Post</button>
+    <button onclick="fetchNextPost()">Next Post</button>
 
-    <div>
-        <h2>Create a Post</h2>
-        <textarea id="new-post" placeholder="Write something..."></textarea>
-        <button onclick="submitPost()">Post</button>
-    </div>
+    <h2>Create a Post</h2>
+    <textarea id="new-post" placeholder="Write something..."></textarea>
+    <button onclick="submitPost()">Post</button>
 
-    <!-- 🔴 NEW: Start and Stop Voice Mode Buttons -->
-    <div>
-        <button onclick="startVoiceMode()">🎙 Start Voice Mode</button>
-        <button onclick="stopVoiceMode()">⛔ Stop Voice Mode</button>
-    </div>
+    <h2>Voice Assistant</h2>
+    <button onclick="startVoiceMode()">🎤 Start Voice Mode</button>
+    <button onclick="stopVoiceMode()">⛔ Stop Voice Mode</button>
 
     <script>
         let posts = [];
         let currentIndex = 0;
+        let transcribeSocket = null;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
+        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a";  // Replace with your Cognito Identity Pool ID
 
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
-                const responseText = await response.text();
-                const result = JSON.parse(responseText);
-
-                let data;
-                if (typeof result.body === 'string') {
-                    data = JSON.parse(result.body);
-                } else {
-                    data = result.body;
-                }
-                
-                if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
+                const data = await response.json();
+                if (data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
                     posts = data.posts.reverse();
                     currentIndex = 0;
                     document.getElementById("post-content").innerText = posts[currentIndex].content;
@@ -55,7 +41,6 @@
                 }
             } catch (error) {
                 console.error("Error fetching posts:", error);
-                document.getElementById("post-content").innerText = "Error loading posts.";
             }
         }
 
@@ -84,64 +69,94 @@
                 return;
             }
 
-            const postData = { content: content };
-
             try {
                 const response = await fetch(apiUrl, {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    body: JSON.stringify(postData)
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ content })
                 });
-
-                const responseText = await response.text();
-                const result = JSON.parse(responseText);
-
-                if (result.error) {
-                    throw new Error(result.error);
-                }
 
                 alert("Post stored successfully!");
                 document.getElementById("new-post").value = "";
-                
                 await fetchAllPosts();
-
             } catch (error) {
                 console.error("Error posting:", error);
-                alert("Error posting: " + error.message);
             }
         }
 
-        // 🎙 STEP 1: Add Voice Mode Functionality
-        let transcribeWebSocket;
-        let isVoiceModeActive = false;
+        async function getAWSCredentials() {
+            const response = await fetch(`https://cognito-identity.us-east-1.amazonaws.com/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityService.GetId" },
+                body: JSON.stringify({
+                    IdentityPoolId: identityPoolId
+                })
+            });
 
-        function startVoiceMode() {
-            if (isVoiceModeActive) {
-                alert("Voice mode is already running!");
-                return;
-            }
+            const { IdentityId } = await response.json();
 
+            const credsResponse = await fetch(`https://cognito-identity.us-east-1.amazonaws.com/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity" },
+                body: JSON.stringify({ IdentityId })
+            });
+
+            return await credsResponse.json();
+        }
+
+        async function startVoiceMode() {
             alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
-            isVoiceModeActive = true;
             
-            // Placeholder: This will later connect to Amazon Transcribe Streaming
-            console.log("Voice Mode: Listening for commands...");
+            const creds = await getAWSCredentials();
+            const { AccessKeyId, SecretKey, SessionToken } = creds.Credentials;
+
+            const transcribeURL = `wss://transcribestreaming.us-east-1.amazonaws.com:8443/stream-transcription-websocket?language-code=en-US&media-encoding=pcm&sample-rate=16000&X-Amz-Credential=${encodeURIComponent(AccessKeyId)}/${encodeURIComponent(SecretKey)}/${encodeURIComponent(SessionToken)}`;
+
+            transcribeSocket = new WebSocket(transcribeURL);
+
+            transcribeSocket.onopen = () => {
+                console.log("Transcribe WebSocket connected.");
+            };
+
+            transcribeSocket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.Transcript && message.Transcript.Results.length > 0) {
+                    const transcript = message.Transcript.Results[0].Alternatives[0].Transcript.toLowerCase();
+                    console.log("Heard:", transcript);
+                    processVoiceCommand(transcript);
+                }
+            };
+
+            transcribeSocket.onerror = (error) => {
+                console.error("Transcribe WebSocket error:", error);
+            };
+
+            transcribeSocket.onclose = () => {
+                console.log("Transcribe WebSocket closed.");
+            };
         }
 
         function stopVoiceMode() {
-            if (!isVoiceModeActive) {
-                alert("Voice mode is not active.");
-                return;
+            if (transcribeSocket) {
+                transcribeSocket.close();
+                alert("Voice mode stopped.");
             }
+        }
 
-            alert("Voice mode stopped.");
-            isVoiceModeActive = false;
-            
-            // Placeholder: Later, we will disconnect Transcribe WebSocket
-            console.log("Voice Mode: Stopped.");
+        function processVoiceCommand(command) {
+            if (command.includes("next post")) {
+                fetchNextPost();
+            } else if (command.includes("previous post")) {
+                fetchPreviousPost();
+            } else if (command.startsWith("create post")) {
+                const postContent = command.replace("create post", "").trim();
+                if (postContent) {
+                    document.getElementById("new-post").value = postContent;
+                    submitPost();
+                }
+            } else {
+                alert(`Unknown command: ${command}`);
+            }
         }
 
         fetchAllPosts();
