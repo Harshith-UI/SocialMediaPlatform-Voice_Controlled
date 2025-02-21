@@ -23,63 +23,78 @@
     <button onclick="submitPost()">Post</button>
 
     <script>
-        let lastEvaluatedKey = null;
-        let previousPosts = [];
-        let currentIndex = -1;
+        let posts = [];  // Store fetched posts
+        let currentIndex = 0;
 
-        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; // Replace with your API Gateway Invoke URL
+        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; // Your API Gateway URL
 
-        async function fetchNextPost() {
+        // ✅ Fetch All Posts Initially
+        async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
                 const result = await response.json();
-                const data = JSON.parse(result.body); // ✅ Fixing data extraction issue
+                const data = JSON.parse(result.body); // ✅ Fix JSON parsing
 
-                if (!data.posts || data.posts.length === 0) {
-                    document.getElementById("post-content").innerText = "No more posts!";
-                    return;
+                if (data.posts && data.posts.length > 0) {
+                    posts = data.posts.reverse();  // Show newest posts first
+                    currentIndex = 0;
+                    document.getElementById("post-content").innerText = posts[currentIndex].content;
+                } else {
+                    document.getElementById("post-content").innerText = "No posts available!";
                 }
-
-                previousPosts = data.posts;
-                currentIndex = 0;
-                document.getElementById("post-content").innerText = previousPosts[currentIndex].content;
             } catch (error) {
                 console.error("Error fetching posts:", error);
                 document.getElementById("post-content").innerText = "Error loading posts.";
             }
         }
 
+        // ✅ Fetch Next Post
+        function fetchNextPost() {
+            if (currentIndex < posts.length - 1) {
+                currentIndex++;
+                document.getElementById("post-content").innerText = posts[currentIndex].content;
+            } else {
+                document.getElementById("post-content").innerText = "No more posts!";
+            }
+        }
+
+        // ✅ Fetch Previous Post
         function fetchPreviousPost() {
             if (currentIndex > 0) {
                 currentIndex--;
-                document.getElementById("post-content").innerText = previousPosts[currentIndex].content;
+                document.getElementById("post-content").innerText = posts[currentIndex].content;
             } else {
                 document.getElementById("post-content").innerText = "This is the first post!";
             }
         }
 
+        // ✅ Submit a New Post
         async function submitPost() {
-            const content = document.getElementById("new-post").value;
-            if (!content.trim()) return alert("Post cannot be empty!");
+            const content = document.getElementById("new-post").value.trim();
+            if (!content) {
+                alert("Post cannot be empty!");
+                return;
+            }
 
             try {
                 const response = await fetch(apiUrl, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ content })
+                    body: JSON.stringify({ content: content })  // ✅ Fix JSON formatting
                 });
 
                 const result = await response.json();
-                const message = JSON.parse(result.body).message; // ✅ Fixing "undefined" issue
-                alert(message);
+                const parsedBody = JSON.parse(result.body);  // ✅ Fix "undefined" issue
+                alert(parsedBody.message || "Post stored successfully!");
+
                 document.getElementById("new-post").value = "";
-                fetchNextPost();  // Refresh posts after posting
+                fetchAllPosts();  // Refresh posts after posting
             } catch (error) {
                 console.error("Error posting:", error);
             }
         }
 
-        fetchNextPost(); // Load the first post when the page loads
+        fetchAllPosts(); // ✅ Load all posts on page load
     </script>
 </body>
 </html>
