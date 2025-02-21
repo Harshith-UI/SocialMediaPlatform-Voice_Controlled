@@ -32,14 +32,14 @@
         async function fetchNextPost() {
             try {
                 const response = await fetch(apiUrl);
-                const data = await response.json();
+                const result = await response.json();
+                const data = JSON.parse(result.body); // ✅ Fixing data extraction issue
 
                 if (!data.posts || data.posts.length === 0) {
                     document.getElementById("post-content").innerText = "No more posts!";
                     return;
                 }
 
-                // Store posts in history for Previous button
                 previousPosts = data.posts;
                 currentIndex = 0;
                 document.getElementById("post-content").innerText = previousPosts[currentIndex].content;
@@ -70,9 +70,10 @@
                 });
 
                 const result = await response.json();
-                alert(result.message);
+                const message = JSON.parse(result.body).message; // ✅ Fixing "undefined" issue
+                alert(message);
                 document.getElementById("new-post").value = "";
-                fetchNextPost();  // Refresh posts after new post
+                fetchNextPost();  // Refresh posts after posting
             } catch (error) {
                 console.error("Error posting:", error);
             }
@@ -82,4 +83,3 @@
     </script>
 </body>
 </html>
-
