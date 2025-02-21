@@ -5,28 +5,99 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice-Powered Social Media</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-        button, textarea { padding: 10px; font-size: 16px; margin: 10px; }
-        #post-content { font-size: 20px; margin-top: 20px; }
-        #debug-info { 
-            margin-top: 20px; 
-            padding: 10px; 
-            background: #f0f0f0; 
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #f5f5f5;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 10px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        textarea {
+            width: 80%;
+            padding: 15px;
+            font-size: 16px;
+            margin: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            min-height: 100px;
+        }
+
+        #post-content {
+            font-size: 20px;
+            margin: 20px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        #debug-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
             text-align: left;
             white-space: pre-wrap;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            font-family: monospace;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+
+        .navigation-buttons {
+            margin: 20px 0;
+        }
+
+        .post-form {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin: 20px 0;
         }
     </style>
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
-    <p>Click "Next Post" or "Previous Post" to navigate through posts.</p>
+    
     <div id="post-content">Loading...</div>
-    <button onclick="fetchPreviousPost()">Previous Post</button>
-    <button onclick="fetchNextPost()">Next Post</button>
-    <h2>Create a Post</h2>
-    <textarea id="new-post" placeholder="Write something..."></textarea>
-    <button onclick="submitPost()">Post</button>
+    
+    <div class="navigation-buttons">
+        <button onclick="fetchPreviousPost()">Previous Post</button>
+        <button onclick="fetchNextPost()">Next Post</button>
+    </div>
+
+    <div class="post-form">
+        <h2>Create a Post</h2>
+        <textarea id="new-post" placeholder="Write something..."></textarea>
+        <button onclick="submitPost()">Post</button>
+    </div>
+
     <div id="debug-info"></div>
+
     <script>
         let posts = [];
         let currentIndex = 0;
@@ -34,16 +105,30 @@
 
         function showDebug(message, data) {
             const debugDiv = document.getElementById("debug-info");
-            debugDiv.innerHTML += `\n[${new Date().toISOString()}] ${message}\n${JSON.stringify(data, null, 2)}\n`;
+            const timestamp = new Date().toISOString();
+            const debugMessage = `\n[${timestamp}] ${message}\n${JSON.stringify(data, null, 2)}\n`;
+            debugDiv.innerHTML += debugMessage;
+            debugDiv.scrollTop = debugDiv.scrollHeight;
         }
 
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
-                const result = await response.json();
-                showDebug("Fetch response:", result);
+                showDebug("Fetch response status:", response.status);
                 
-                const data = JSON.parse(result.body);
+                const responseText = await response.text();
+                showDebug("Raw response:", responseText);
+                
+                const result = JSON.parse(responseText);
+                showDebug("Parsed response:", result);
+                
+                let data;
+                try {
+                    data = JSON.parse(result.body);
+                } catch (e) {
+                    data = result.body;
+                }
+                
                 if (data.posts && data.posts.length > 0) {
                     posts = data.posts.reverse();
                     currentIndex = 0;
@@ -51,10 +136,11 @@
                     showDebug("Posts loaded:", posts);
                 } else {
                     document.getElementById("post-content").innerText = "No posts available!";
+                    showDebug("No posts found in response", data);
                 }
             } catch (error) {
                 console.error("Error fetching posts:", error);
-                showDebug("Error fetching posts:", error);
+                showDebug("Error fetching posts:", error.toString());
                 document.getElementById("post-content").innerText = "Error loading posts.";
             }
         }
@@ -63,8 +149,10 @@
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
+                showDebug("Showing next post:", posts[currentIndex]);
             } else {
                 document.getElementById("post-content").innerText = "No more posts!";
+                showDebug("Reached end of posts", null);
             }
         }
 
@@ -72,8 +160,10 @@
             if (currentIndex > 0) {
                 currentIndex--;
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
+                showDebug("Showing previous post:", posts[currentIndex]);
             } else {
                 document.getElementById("post-content").innerText = "This is the first post!";
+                showDebug("Reached start of posts", null);
             }
         }
 
@@ -98,22 +188,42 @@
                 });
                 
                 showDebug("Response status:", response.status);
-                const result = await response.json();
-                showDebug("Response data:", result);
-
-                const parsedBody = JSON.parse(result.body);
-                alert(parsedBody.message || "Post stored successfully!");
-                document.getElementById("new-post").value = "";
+                const responseText = await response.text();
+                showDebug("Raw response:", responseText);
                 
-                // Add delay before refreshing posts
-                setTimeout(fetchAllPosts, 1000);
+                try {
+                    const result = JSON.parse(responseText);
+                    showDebug("Parsed response:", result);
+                    
+                    let message;
+                    if (result.body) {
+                        const body = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
+                        message = body.message || "Post stored successfully!";
+                    } else {
+                        message = result.message || "Post stored successfully!";
+                    }
+                    
+                    if (result.error || (result.body && result.body.error)) {
+                        throw new Error(result.error || result.body.error);
+                    }
+                    
+                    alert(message);
+                    document.getElementById("new-post").value = "";
+                    
+                    // Add delay before refreshing posts
+                    setTimeout(fetchAllPosts, 1000);
+                } catch (parseError) {
+                    showDebug("Error parsing response:", parseError);
+                    throw new Error("Invalid response format");
+                }
             } catch (error) {
                 console.error("Error posting:", error);
-                showDebug("Error posting:", error);
+                showDebug("Error posting:", error.toString());
                 alert("Error posting: " + error.message);
             }
         }
 
+        // Initial load of posts
         fetchAllPosts();
     </script>
 </body>
