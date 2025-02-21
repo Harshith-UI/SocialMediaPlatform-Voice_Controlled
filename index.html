@@ -6,18 +6,88 @@
     <title>Voice-Powered Social Media</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-        button { padding: 10px 20px; font-size: 16px; margin: 10px; cursor: pointer; }
+        button, textarea { padding: 10px; font-size: 16px; margin: 10px; }
+        #post-content { font-size: 20px; margin-top: 20px; }
     </style>
 </head>
 <body>
-    <h1>Welcome to the Voice-Powered Social Media Platform! 🎤</h1>
-    <p>This is a basic setup. We will add voice functionality step by step.</p>
-    <button onclick="testAlert()">Click to Test</button>
+    <h1>Voice-Powered Social Media App 🎤</h1>
+    <p>Click "Next Post" or "Previous Post" to navigate through posts.</p>
+
+    <div id="post-content">Loading...</div>
+    <button onclick="fetchPreviousPost()">Previous Post</button>
+    <button onclick="fetchNextPost()">Next Post</button>
+
+    <h2>Create a Post</h2>
+    <textarea id="new-post" placeholder="Write something..."></textarea>
+    <button onclick="submitPost()">Post</button>
 
     <script>
-        function testAlert() {
-            alert("AWS Amplify Hosting Works!");
+        let lastEvaluatedKey = null;
+        let previousPosts = [];
+        let currentIndex = -1;
+
+        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; // Replace with your API Gateway Invoke URL
+
+        async function fetchNextPost() {
+            if (currentIndex + 1 < previousPosts.length) {
+                // Move to next post in stored history
+                currentIndex++;
+                document.getElementById("post-content").innerText = previousPosts[currentIndex].content;
+                return;
+            }
+
+            let url = apiUrl;
+            if (lastEvaluatedKey) {
+                url += `?lastEvaluatedKey=${encodeURIComponent(JSON.stringify(lastEvaluatedKey))}`;
+            }
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.posts.length > 0) {
+                    previousPosts.push(data.posts[0]);
+                    currentIndex++;
+                    document.getElementById("post-content").innerText = data.posts[0].content;
+                    lastEvaluatedKey = data.lastEvaluatedKey;
+                } else {
+                    document.getElementById("post-content").innerText = "No more posts!";
+                }
+            } catch (error) {
+                console.error("Error fetching posts:", error);
+            }
         }
+
+        function fetchPreviousPost() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                document.getElementById("post-content").innerText = previousPosts[currentIndex].content;
+            } else {
+                document.getElementById("post-content").innerText = "This is the first post!";
+            }
+        }
+
+        async function submitPost() {
+            const content = document.getElementById("new-post").value;
+            if (!content.trim()) return alert("Post cannot be empty!");
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ content })
+                });
+
+                const result = await response.json();
+                alert("Post added successfully!");
+                document.getElementById("new-post").value = "";
+            } catch (error) {
+                console.error("Error posting:", error);
+            }
+        }
+
+        fetchNextPost(); // Load the first post when page loads
     </script>
 </body>
 </html>
