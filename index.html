@@ -22,6 +22,12 @@
         <button onclick="submitPost()">Post</button>
     </div>
 
+    <!-- 🔴 NEW: Start and Stop Voice Mode Buttons -->
+    <div>
+        <button onclick="startVoiceMode()">🎙 Start Voice Mode</button>
+        <button onclick="stopVoiceMode()">⛔ Stop Voice Mode</button>
+    </div>
+
     <script>
         let posts = [];
         let currentIndex = 0;
@@ -106,6 +112,36 @@
                 console.error("Error posting:", error);
                 alert("Error posting: " + error.message);
             }
+        }
+
+        // 🎙 STEP 1: Add Voice Mode Functionality
+        let transcribeWebSocket;
+        let isVoiceModeActive = false;
+
+        function startVoiceMode() {
+            if (isVoiceModeActive) {
+                alert("Voice mode is already running!");
+                return;
+            }
+
+            alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
+            isVoiceModeActive = true;
+            
+            // Placeholder: This will later connect to Amazon Transcribe Streaming
+            console.log("Voice Mode: Listening for commands...");
+        }
+
+        function stopVoiceMode() {
+            if (!isVoiceModeActive) {
+                alert("Voice mode is not active.");
+                return;
+            }
+
+            alert("Voice mode stopped.");
+            isVoiceModeActive = false;
+            
+            // Placeholder: Later, we will disconnect Transcribe WebSocket
+            console.log("Voice Mode: Stopped.");
         }
 
         fetchAllPosts();
