@@ -8,47 +8,57 @@
         body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
         button, textarea { padding: 10px; font-size: 16px; margin: 10px; }
         #post-content { font-size: 20px; margin-top: 20px; }
+        #debug-info { 
+            margin-top: 20px; 
+            padding: 10px; 
+            background: #f0f0f0; 
+            text-align: left;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
     <p>Click "Next Post" or "Previous Post" to navigate through posts.</p>
-
     <div id="post-content">Loading...</div>
     <button onclick="fetchPreviousPost()">Previous Post</button>
     <button onclick="fetchNextPost()">Next Post</button>
-
     <h2>Create a Post</h2>
     <textarea id="new-post" placeholder="Write something..."></textarea>
     <button onclick="submitPost()">Post</button>
-
+    <div id="debug-info"></div>
     <script>
-        let posts = [];  // Store fetched posts
+        let posts = [];
         let currentIndex = 0;
+        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
-        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; // Your API Gateway URL
+        function showDebug(message, data) {
+            const debugDiv = document.getElementById("debug-info");
+            debugDiv.innerHTML += `\n[${new Date().toISOString()}] ${message}\n${JSON.stringify(data, null, 2)}\n`;
+        }
 
-        // ✅ Fetch All Posts Initially
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
                 const result = await response.json();
-                const data = JSON.parse(result.body); // ✅ Fix JSON parsing
-
+                showDebug("Fetch response:", result);
+                
+                const data = JSON.parse(result.body);
                 if (data.posts && data.posts.length > 0) {
-                    posts = data.posts.reverse();  // Show newest posts first
+                    posts = data.posts.reverse();
                     currentIndex = 0;
                     document.getElementById("post-content").innerText = posts[currentIndex].content;
+                    showDebug("Posts loaded:", posts);
                 } else {
                     document.getElementById("post-content").innerText = "No posts available!";
                 }
             } catch (error) {
                 console.error("Error fetching posts:", error);
+                showDebug("Error fetching posts:", error);
                 document.getElementById("post-content").innerText = "Error loading posts.";
             }
         }
 
-        // ✅ Fetch Next Post
         function fetchNextPost() {
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
@@ -58,7 +68,6 @@
             }
         }
 
-        // ✅ Fetch Previous Post
         function fetchPreviousPost() {
             if (currentIndex > 0) {
                 currentIndex--;
@@ -68,7 +77,6 @@
             }
         }
 
-        // ✅ Submit a New Post
         async function submitPost() {
             const content = document.getElementById("new-post").value.trim();
             if (!content) {
@@ -76,25 +84,37 @@
                 return;
             }
 
+            const postData = { content: content };
+            showDebug("Sending post data:", postData);
+
             try {
                 const response = await fetch(apiUrl, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ content: content })  // ✅ Fix JSON formatting
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    },
+                    body: JSON.stringify(postData)
                 });
-
+                
+                showDebug("Response status:", response.status);
                 const result = await response.json();
-                const parsedBody = JSON.parse(result.body);  // ✅ Fix "undefined" issue
-                alert(parsedBody.message || "Post stored successfully!");
+                showDebug("Response data:", result);
 
+                const parsedBody = JSON.parse(result.body);
+                alert(parsedBody.message || "Post stored successfully!");
                 document.getElementById("new-post").value = "";
-                fetchAllPosts();  // Refresh posts after posting
+                
+                // Add delay before refreshing posts
+                setTimeout(fetchAllPosts, 1000);
             } catch (error) {
                 console.error("Error posting:", error);
+                showDebug("Error posting:", error);
+                alert("Error posting: " + error.message);
             }
         }
 
-        fetchAllPosts(); // ✅ Load all posts on page load
+        fetchAllPosts();
     </script>
 </body>
 </html>
