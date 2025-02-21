@@ -27,11 +27,10 @@
         let previousPosts = [];
         let currentIndex = -1;
 
-        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; // Replace with your API Gateway Invoke URL
+        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; // Your API Gateway URL
 
         async function fetchNextPost() {
             if (currentIndex + 1 < previousPosts.length) {
-                // Move to next post in stored history
                 currentIndex++;
                 document.getElementById("post-content").innerText = previousPosts[currentIndex].content;
                 return;
@@ -46,16 +45,20 @@
                 const response = await fetch(url);
                 const data = await response.json();
 
-                if (data.posts.length > 0) {
-                    previousPosts.push(data.posts[0]);
+                // ✅ FIX: Parse `body` field correctly
+                const parsedBody = JSON.parse(data.body);
+
+                if (parsedBody.posts && parsedBody.posts.length > 0) {
+                    previousPosts.push(parsedBody.posts[0]);
                     currentIndex++;
-                    document.getElementById("post-content").innerText = data.posts[0].content;
-                    lastEvaluatedKey = data.lastEvaluatedKey;
+                    document.getElementById("post-content").innerText = parsedBody.posts[0].content;
+                    lastEvaluatedKey = parsedBody.lastEvaluatedKey;
                 } else {
                     document.getElementById("post-content").innerText = "No more posts!";
                 }
             } catch (error) {
                 console.error("Error fetching posts:", error);
+                document.getElementById("post-content").innerText = "Error loading posts.";
             }
         }
 
@@ -84,10 +87,11 @@
                 document.getElementById("new-post").value = "";
             } catch (error) {
                 console.error("Error posting:", error);
+                alert("Failed to add post.");
             }
         }
 
-        fetchNextPost(); // Load the first post when page loads
+        fetchNextPost(); // Load the first post on page load
     </script>
 </body>
 </html>
