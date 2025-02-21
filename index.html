@@ -7,10 +7,13 @@
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
-
+    
     <div id="post-content">Loading...</div>
-    <button onclick="fetchPreviousPost()">Previous Post</button>
-    <button onclick="fetchNextPost()">Next Post</button>
+    
+    <div>
+        <button onclick="fetchPreviousPost()">Previous Post</button>
+        <button onclick="fetchNextPost()">Next Post</button>
+    </div>
 
     <h2>Create a Post</h2>
     <textarea id="new-post" placeholder="Write something..."></textarea>
@@ -23,16 +26,20 @@
     <script>
         let posts = [];
         let currentIndex = 0;
-        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; // Replace with your API URL
+        let transcribeSocket = null;
 
+        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
+        const region = "us-east-1"; // AWS Region
+        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a"; // Replace with your Cognito Identity Pool ID
+
+        // Fetch all posts from API
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
                 const result = await response.json();
-
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
-                
-                if (data.posts && data.posts.length > 0) {
+
+                if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
                     posts = data.posts.reverse();
                     currentIndex = 0;
                     document.getElementById("post-content").innerText = posts[currentIndex].content;
@@ -65,7 +72,10 @@
 
         async function submitPost() {
             const content = document.getElementById("new-post").value.trim();
-            if (!content) return alert("Post cannot be empty!");
+            if (!content) {
+                alert("Post cannot be empty!");
+                return;
+            }
 
             try {
                 const response = await fetch(apiUrl, {
@@ -77,9 +87,9 @@
                 if (response.ok) {
                     alert("Post stored successfully!");
                     document.getElementById("new-post").value = "";
-                    await fetchAllPosts(); // Refresh posts
+                    fetchAllPosts();
                 } else {
-                    throw new Error("Failed to post.");
+                    throw new Error("Failed to store post.");
                 }
             } catch (error) {
                 console.error("Error posting:", error);
@@ -87,112 +97,69 @@
             }
         }
 
-        // Voice Mode Integration
-        let transcribeSocket = null;
-        let mediaRecorder = null;
-        let audioStream = null;
-
+        // Start Voice Mode (Amazon Transcribe Streaming)
         async function startVoiceMode() {
-            try {
-                // Get AWS credentials from Cognito Identity Pool
-                const response = await fetch("https://cognito-identity.us-east-1.amazonaws.com", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityService.GetId" },
-                    body: JSON.stringify({ IdentityPoolId: "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a" }) // Replace with your Cognito Identity Pool ID
-                });
+            alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
+            
+            AWS.config.region = region;
+            AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: identityPoolId });
 
-                const identityData = await response.json();
-                const identityId = identityData.IdentityId;
+            AWS.config.credentials.get(async function () {
+                const credentials = AWS.config.credentials;
+                const accessKeyId = credentials.accessKeyId;
+                const secretAccessKey = credentials.secretAccessKey;
+                const sessionToken = credentials.sessionToken;
 
-                // Get temporary AWS credentials
-                const credentialsResponse = await fetch("https://cognito-identity.us-east-1.amazonaws.com", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity" },
-                    body: JSON.stringify({ IdentityId: identityId })
-                });
-
-                const credentialsData = await credentialsResponse.json();
-                const credentials = credentialsData.Credentials;
-
-                const accessKeyId = credentials.AccessKeyId;
-                const secretAccessKey = credentials.SecretKey;
-                const sessionToken = credentials.SessionToken;
-
-                // Generate WebSocket URL for Amazon Transcribe
-                const region = "us-east-1"; // Change this to your AWS region
-                const transcribeUrl = `wss://transcribestreaming.${region}.amazonaws.com:8443/stream-transcription-websocket?language-code=en-US&media-encoding=pcm&sample-rate=16000`;
+                const transcribeUrl = `wss://transcribestreaming.${region}.amazonaws.com:8443/stream-transcription-websocket?media-encoding=pcm&sample-rate=16000&language-code=en-US&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${accessKeyId}%2F20250222%2F${region}%2Ftranscribe%2Faws4_request&X-Amz-Security-Token=${sessionToken}`;
 
                 transcribeSocket = new WebSocket(transcribeUrl);
 
-                transcribeSocket.onopen = async () => {
-                    console.log("Transcribe WebSocket connected.");
+                transcribeSocket.onopen = () => console.log("Transcribe WebSocket connected.");
+                transcribeSocket.onclose = () => console.log("Transcribe WebSocket closed.");
+                transcribeSocket.onerror = (error) => console.error("Transcribe WebSocket Error:", error);
 
-                    // Request microphone access
-                    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(audioStream, { mimeType: "audio/webm" });
+                transcribeSocket.onmessage = async (event) => {
+                    if (event.data instanceof Blob) {
+                        event.data.text().then((text) => {
+                            try {
+                                const message = JSON.parse(text);
+                                if (message.results && message.results.length > 0) {
+                                    const transcript = message.results[0].alternatives[0].transcript.trim().toLowerCase();
+                                    console.log("Received transcript:", transcript);
 
-                    mediaRecorder.ondataavailable = (event) => {
-                        if (transcribeSocket.readyState === WebSocket.OPEN) {
-                            transcribeSocket.send(event.data);
-                        }
-                    };
-
-                    mediaRecorder.start(250);
-                    alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
-                };
-
-                transcribeSocket.onmessage = (event) => {
-                    const reader = new FileReader();
-                    reader.onload = function () {
-                        const message = JSON.parse(reader.result);
-                        if (message.results && message.results.length > 0) {
-                            const transcript = message.results[0].alternatives[0].transcript.trim().toLowerCase();
-                            console.log("Received transcript:", transcript);
-
-                            if (transcript === "next post") {
-                                fetchNextPost();
-                            } else if (transcript === "previous post") {
-                                fetchPreviousPost();
-                            } else if (transcript.startsWith("create post")) {
-                                const postContent = transcript.replace("create post", "").trim();
-                                if (postContent) {
-                                    document.getElementById("new-post").value = postContent;
-                                    submitPost();
+                                    if (transcript === "next post") {
+                                        fetchNextPost();
+                                    } else if (transcript === "previous post") {
+                                        fetchPreviousPost();
+                                    } else if (transcript.startsWith("create post")) {
+                                        const postContent = transcript.replace("create post", "").trim();
+                                        if (postContent) {
+                                            document.getElementById("new-post").value = postContent;
+                                            submitPost();
+                                        }
+                                    }
                                 }
+                            } catch (error) {
+                                console.error("Error parsing Transcribe response:", error);
                             }
-                        }
-                    };
-                    reader.readAsText(event.data);
+                        });
+                    }
                 };
-
-                transcribeSocket.onerror = (event) => {
-                    console.error("Transcribe WebSocket error:", event);
-                };
-
-                transcribeSocket.onclose = () => {
-                    console.log("Transcribe WebSocket closed.");
-                };
-            } catch (error) {
-                console.error("Error starting voice mode:", error);
-                alert("Error starting voice mode.");
-            }
+            });
         }
 
         function stopVoiceMode() {
-            if (mediaRecorder) {
-                mediaRecorder.stop();
-            }
-            if (audioStream) {
-                audioStream.getTracks().forEach(track => track.stop());
-            }
             if (transcribeSocket) {
                 transcribeSocket.close();
+                transcribeSocket = null;
             }
             alert("Voice mode stopped.");
         }
 
-        // Load posts on page load
+        // Initial load of posts
         fetchAllPosts();
     </script>
+
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.931.0.min.js"></script>
 </body>
 </html>
