@@ -52,6 +52,7 @@
             background-color: white;
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            min-height: 100px;
         }
 
         #debug-info {
@@ -65,6 +66,8 @@
             font-family: monospace;
             font-size: 14px;
             overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
         }
 
         .navigation-buttons {
@@ -106,7 +109,11 @@
         function showDebug(message, data) {
             const debugDiv = document.getElementById("debug-info");
             const timestamp = new Date().toISOString();
-            const debugMessage = `\n[${timestamp}] ${message}\n${JSON.stringify(data, null, 2)}\n`;
+            let debugMessage = `\n[${timestamp}] ${message}\n`;
+            if (data) {
+                debugMessage += typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            }
+            debugMessage += '\n';
             debugDiv.innerHTML += debugMessage;
             debugDiv.scrollTop = debugDiv.scrollHeight;
         }
@@ -120,16 +127,15 @@
                 showDebug("Raw response:", responseText);
                 
                 const result = JSON.parse(responseText);
-                showDebug("Parsed response:", result);
                 
                 let data;
-                try {
+                if (typeof result.body === 'string') {
                     data = JSON.parse(result.body);
-                } catch (e) {
+                } else {
                     data = result.body;
                 }
                 
-                if (data.posts && data.posts.length > 0) {
+                if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
                     posts = data.posts.reverse();
                     currentIndex = 0;
                     document.getElementById("post-content").innerText = posts[currentIndex].content;
@@ -191,31 +197,30 @@
                 const responseText = await response.text();
                 showDebug("Raw response:", responseText);
                 
+                let result;
                 try {
-                    const result = JSON.parse(responseText);
-                    showDebug("Parsed response:", result);
-                    
-                    let message;
-                    if (result.body) {
-                        const body = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
-                        message = body.message || "Post stored successfully!";
-                    } else {
-                        message = result.message || "Post stored successfully!";
-                    }
-                    
-                    if (result.error || (result.body && result.body.error)) {
-                        throw new Error(result.error || result.body.error);
-                    }
-                    
-                    alert(message);
-                    document.getElementById("new-post").value = "";
-                    
-                    // Add delay before refreshing posts
-                    setTimeout(fetchAllPosts, 1000);
-                } catch (parseError) {
-                    showDebug("Error parsing response:", parseError);
-                    throw new Error("Invalid response format");
+                    result = JSON.parse(responseText);
+                } catch (e) {
+                    throw new Error("Invalid response format from server");
                 }
+                
+                if (result.statusCode === 400 || result.statusCode === 500) {
+                    throw new Error(result.body.error || "Server error occurred");
+                }
+                
+                let message;
+                try {
+                    const body = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
+                    message = body.message || "Post stored successfully!";
+                } catch (e) {
+                    message = "Post stored successfully!";
+                }
+                
+                alert(message);
+                document.getElementById("new-post").value = "";
+                
+                // Add delay before refreshing posts
+                setTimeout(fetchAllPosts, 1000);
             } catch (error) {
                 console.error("Error posting:", error);
                 showDebug("Error posting:", error.toString());
