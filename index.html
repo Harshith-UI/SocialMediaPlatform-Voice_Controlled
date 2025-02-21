@@ -174,59 +174,48 @@
         }
 
         async function submitPost() {
-            const content = document.getElementById("new-post").value.trim();
-            if (!content) {
-                alert("Post cannot be empty!");
-                return;
-            }
+    const content = document.getElementById("new-post").value.trim();
+    if (!content) {
+        alert("Post cannot be empty!");
+        return;
+    }
 
-            const postData = { content: content };
-            showDebug("Sending post data:", postData);
+    const postData = { content: content };
+    showDebug("Sending post data:", postData);
 
-            try {
-                const response = await fetch(apiUrl, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    body: JSON.stringify(postData)
-                });
-                
-                showDebug("Response status:", response.status);
-                const responseText = await response.text();
-                showDebug("Raw response:", responseText);
-                
-                let result;
-                try {
-                    result = JSON.parse(responseText);
-                } catch (e) {
-                    throw new Error("Invalid response format from server");
-                }
-                
-                if (result.statusCode === 400 || result.statusCode === 500) {
-                    throw new Error(result.body.error || "Server error occurred");
-                }
-                
-                let message;
-                try {
-                    const body = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
-                    message = body.message || "Post stored successfully!";
-                } catch (e) {
-                    message = "Post stored successfully!";
-                }
-                
-                alert(message);
-                document.getElementById("new-post").value = "";
-                
-                // Add delay before refreshing posts
-                setTimeout(fetchAllPosts, 1000);
-            } catch (error) {
-                console.error("Error posting:", error);
-                showDebug("Error posting:", error.toString());
-                alert("Error posting: " + error.message);
-            }
+    try {
+        const response = await fetch(apiUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify(postData)
+        });
+        
+        showDebug("Response status:", response.status);
+        const responseText = await response.text();
+        showDebug("Raw response:", responseText);
+        
+        const result = JSON.parse(responseText);
+        
+        // Handle the response directly without additional parsing
+        if (result.error) {
+            throw new Error(result.error);
         }
+        
+        alert("Post stored successfully!");
+        document.getElementById("new-post").value = "";
+        
+        // Refresh posts
+        await fetchAllPosts();
+        
+    } catch (error) {
+        console.error("Error posting:", error);
+        showDebug("Error posting:", error.toString());
+        alert("Error posting: " + error.message);
+    }
+}
 
         // Initial load of posts
         fetchAllPosts();
