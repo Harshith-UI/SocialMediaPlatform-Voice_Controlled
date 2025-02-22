@@ -4,15 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice-Powered Social Media</title>
+    <style>
+        .error { color: red; }
+        .success { color: green; }
+        .status { margin: 10px 0; }
+        button { margin: 5px; padding: 8px; }
+        textarea { width: 100%; min-height: 100px; margin: 10px 0; }
+    </style>
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
     
+    <div id="status-message" class="status"></div>
     <div id="post-content">Loading...</div>
     
     <div>
-        <button onclick="fetchPreviousPost()">Previous Post</button>
-        <button onclick="fetchNextPost()">Next Post</button>
+        <button id="prevButton" onclick="fetchPreviousPost()">Previous Post</button>
+        <button id="nextButton" onclick="fetchNextPost()">Next Post</button>
     </div>
 
     <h2>Create a Post</h2>
@@ -20,8 +28,8 @@
     <button onclick="submitPost()">Post</button>
 
     <h2>Voice Assistant</h2>
-    <button onclick="startVoiceMode()">🎙️ Start Voice Mode</button>
-    <button onclick="stopVoiceMode()">⛔ Stop Voice Mode</button>
+    <button id="startVoice" onclick="startVoiceMode()">🎙️ Start Voice Mode</button>
+    <button id="stopVoice" onclick="stopVoiceMode()" disabled>⛔ Stop Voice Mode</button>
 
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.931.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
@@ -30,52 +38,84 @@
         let posts = [];
         let currentIndex = 0;
         let transcribeSocket = null;
-
+        let isRecording = false;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 3;
+        
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
-        const region = "us-east-1"; // AWS Region
-        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a"; // Replace with your Cognito Identity Pool ID
+        const region = "us-east-1";
+        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a";
+
+        // Initialize AWS credentials
+        async function initializeAWS() {
+            try {
+                AWS.config.region = region;
+                AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+                    IdentityPoolId: identityPoolId
+                });
+                await AWS.config.credentials.getPromise();
+                return true;
+            } catch (error) {
+                showStatus('Failed to initialize AWS credentials: ' + error.message, 'error');
+                return false;
+            }
+        }
+
+        function showStatus(message, type = 'success') {
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + type;
+            setTimeout(() => {
+                statusDiv.textContent = '';
+                statusDiv.className = 'status';
+            }, 5000);
+        }
 
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const result = await response.json();
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
 
                 if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
                     posts = data.posts.reverse();
                     currentIndex = 0;
-                    document.getElementById("post-content").innerText = posts[currentIndex].content;
+                    updatePostDisplay();
                 } else {
                     document.getElementById("post-content").innerText = "No posts available!";
                 }
             } catch (error) {
-                console.error("Error fetching posts:", error);
-                document.getElementById("post-content").innerText = "Error loading posts.";
+                showStatus("Error fetching posts: " + error.message, 'error');
             }
+        }
+
+        function updatePostDisplay() {
+            document.getElementById("post-content").innerText = posts[currentIndex].content;
+            document.getElementById("prevButton").disabled = currentIndex <= 0;
+            document.getElementById("nextButton").disabled = currentIndex >= posts.length - 1;
         }
 
         function fetchNextPost() {
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
-                document.getElementById("post-content").innerText = posts[currentIndex].content;
-            } else {
-                document.getElementById("post-content").innerText = "No more posts!";
+                updatePostDisplay();
             }
         }
 
         function fetchPreviousPost() {
             if (currentIndex > 0) {
                 currentIndex--;
-                document.getElementById("post-content").innerText = posts[currentIndex].content;
-            } else {
-                document.getElementById("post-content").innerText = "This is the first post!";
+                updatePostDisplay();
             }
         }
 
         async function submitPost() {
             const content = document.getElementById("new-post").value.trim();
             if (!content) {
-                alert("Post cannot be empty!");
+                showStatus("Post cannot be empty!", 'error');
                 return;
             }
 
@@ -87,100 +127,195 @@
                 });
 
                 if (response.ok) {
-                    alert("Post stored successfully!");
+                    showStatus("Post stored successfully!");
                     document.getElementById("new-post").value = "";
-                    fetchAllPosts();
+                    await fetchAllPosts();
                 } else {
-                    throw new Error("Failed to store post.");
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
             } catch (error) {
-                console.error("Error posting:", error);
-                alert("Error posting: " + error.message);
+                showStatus("Error posting: " + error.message, 'error');
             }
         }
 
         async function getSignedTranscribeUrl() {
-            AWS.config.region = region;
-            AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: identityPoolId });
-
-            await AWS.config.credentials.getPromise(); // Ensure credentials are loaded
+            if (!await initializeAWS()) {
+                throw new Error("Failed to initialize AWS credentials");
+            }
 
             const credentials = AWS.config.credentials;
-            const accessKeyId = credentials.accessKeyId;
-            const secretAccessKey = credentials.secretAccessKey;
-            const sessionToken = credentials.sessionToken;
-            
-            const service = "transcribe";
-            const endpoint = `transcribestreaming.${region}.amazonaws.com`;
-            const requestDate = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-            const credentialScope = `${requestDate}/${region}/${service}/aws4_request`;
+            const endpoint = `transcribestreaming.${region}.amazonaws.com:8443`;
+            const requestDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+            const dateStamp = requestDate.slice(0, 8);
+            const credentialScope = `${dateStamp}/${region}/transcribe/aws4_request`;
 
             function sign(key, msg) {
                 return CryptoJS.HmacSHA256(msg, key);
             }
 
-            const kDate = sign("AWS4" + secretAccessKey, requestDate);
+            const kDate = sign(`AWS4${credentials.secretAccessKey}`, dateStamp);
             const kRegion = sign(kDate, region);
-            const kService = sign(kRegion, service);
-            const kSigning = sign(kService, "aws4_request");
+            const kService = sign(kRegion, 'transcribe');
+            const kSigning = sign(kService, 'aws4_request');
 
-            const canonicalQuerystring = `X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(accessKeyId + '/' + credentialScope)}&X-Amz-Date=${requestDate}T000000Z&X-Amz-Security-Token=${encodeURIComponent(sessionToken)}`;
-            const stringToSign = `AWS4-HMAC-SHA256\n${requestDate}T000000Z\n${credentialScope}\n${CryptoJS.SHA256(canonicalQuerystring)}`;
-            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString();
+            const canonicalQuerystring = [
+                'X-Amz-Algorithm=AWS4-HMAC-SHA256',
+                `X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId + '/' + credentialScope)}`,
+                `X-Amz-Date=${requestDate}`,
+                `X-Amz-Expires=300`,
+                'X-Amz-SignedHeaders=host',
+                `X-Amz-Security-Token=${encodeURIComponent(credentials.sessionToken)}`,
+                'language-code=en-US',
+                'media-encoding=pcm',
+                'sample-rate=16000'
+            ].sort().join('&');
 
-            return `wss://${endpoint}/stream-transcription-websocket?${canonicalQuerystring}&X-Amz-Signature=${signature}&media-encoding=pcm&sample-rate=16000&language-code=en-US`;
+            const canonicalRequest = [
+                'GET',
+                '/stream-transcription-websocket',
+                canonicalQuerystring,
+                'host:' + endpoint,
+                '',
+                'host',
+                'UNSIGNED-PAYLOAD'
+            ].join('\n');
+
+            const stringToSign = [
+                'AWS4-HMAC-SHA256',
+                requestDate,
+                credentialScope,
+                CryptoJS.SHA256(canonicalRequest)
+            ].join('\n');
+
+            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString(CryptoJS.enc.Hex);
+
+            return `wss://${endpoint}/stream-transcription-websocket?${canonicalQuerystring}&X-Amz-Signature=${signature}`;
         }
 
         async function startVoiceMode() {
-            alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("Your browser doesn't support voice input");
+                }
 
-            const signedUrl = await getSignedTranscribeUrl();
-            console.log("Signed Transcribe URL:", signedUrl);
+                const signedUrl = await getSignedTranscribeUrl();
+                transcribeSocket = new WebSocket(signedUrl);
+                
+                transcribeSocket.onopen = () => {
+                    showStatus("Voice mode activated!");
+                    document.getElementById("startVoice").disabled = true;
+                    document.getElementById("stopVoice").disabled = false;
+                    isRecording = true;
+                    reconnectAttempts = 0;
+                    startAudioStream();
+                };
 
-            transcribeSocket = new WebSocket(signedUrl);
+                transcribeSocket.onclose = (event) => {
+                    if (isRecording && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttempts++;
+                        showStatus(`WebSocket disconnected. Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, 'error');
+                        setTimeout(startVoiceMode, 2000);
+                    } else {
+                        stopVoiceMode();
+                    }
+                };
 
-            transcribeSocket.onopen = () => console.log("✅ Transcribe WebSocket connected.");
-            transcribeSocket.onclose = () => console.log("❌ Transcribe WebSocket closed.");
-            transcribeSocket.onerror = (error) => console.error("⚠️ Transcribe WebSocket Error:", error);
+                transcribeSocket.onerror = (error) => {
+                    console.error("WebSocket Error:", error);
+                    showStatus("WebSocket error occurred", 'error');
+                };
 
-            transcribeSocket.onmessage = async (event) => {
-                if (event.data instanceof Blob) {
-                    event.data.text().then((text) => {
-                        try {
-                            const message = JSON.parse(text);
-                            if (message.results && message.results.length > 0) {
-                                const transcript = message.results[0].alternatives[0].transcript.trim().toLowerCase();
-                                console.log("🗣️ Recognized Speech:", transcript);
+                transcribeSocket.onmessage = handleTranscribeMessage;
 
-                                if (transcript === "next post") {
-                                    fetchNextPost();
-                                } else if (transcript === "previous post") {
-                                    fetchPreviousPost();
-                                } else if (transcript.startsWith("create post")) {
-                                    const postContent = transcript.replace("create post", "").trim();
-                                    if (postContent) {
-                                        document.getElementById("new-post").value = postContent;
-                                        submitPost();
-                                    }
+            } catch (error) {
+                showStatus("Error starting voice mode: " + error.message, 'error');
+                stopVoiceMode();
+            }
+        }
+
+        async function startAudioStream() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(stream);
+                const processor = audioContext.createScriptProcessor(16384, 1, 1);
+
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+
+                processor.onaudioprocess = (e) => {
+                    if (isRecording && transcribeSocket && transcribeSocket.readyState === WebSocket.OPEN) {
+                        const audioData = e.inputBuffer.getChannelData(0);
+                        const pcmData = convertFloat32ToInt16(audioData);
+                        transcribeSocket.send(pcmData.buffer);
+                    }
+                };
+
+                return stream;
+            } catch (error) {
+                showStatus("Error accessing microphone: " + error.message, 'error');
+                throw error;
+            }
+        }
+
+        function convertFloat32ToInt16(float32Array) {
+            const int16Array = new Int16Array(float32Array.length);
+            for (let i = 0; i < float32Array.length; i++) {
+                const s = Math.max(-1, Math.min(1, float32Array[i]));
+                int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            return int16Array;
+        }
+
+        function handleTranscribeMessage(event) {
+            if (event.data instanceof Blob) {
+                event.data.text().then((text) => {
+                    try {
+                        const message = JSON.parse(text);
+                        if (message.Results && message.Results[0] && 
+                            message.Results[0].Alternatives && 
+                            message.Results[0].Alternatives[0]) {
+                            
+                            const transcript = message.Results[0].Alternatives[0].Transcript.trim().toLowerCase();
+                            console.log("Recognized Speech:", transcript);
+
+                            if (transcript === "next post") {
+                                fetchNextPost();
+                            } else if (transcript === "previous post") {
+                                fetchPreviousPost();
+                            } else if (transcript.startsWith("create post")) {
+                                const postContent = transcript.replace("create post", "").trim();
+                                if (postContent) {
+                                    document.getElementById("new-post").value = postContent;
+                                    submitPost();
                                 }
                             }
-                        } catch (error) {
-                            console.error("🚨 Error parsing Transcribe response:", error);
                         }
-                    });
-                }
-            };
+                    } catch (error) {
+                        console.error("Error parsing Transcribe response:", error);
+                    }
+                });
+            }
         }
 
         function stopVoiceMode() {
+            isRecording = false;
             if (transcribeSocket) {
                 transcribeSocket.close();
                 transcribeSocket = null;
             }
-            alert("Voice mode stopped.");
+            document.getElementById("startVoice").disabled = false;
+            document.getElementById("stopVoice").disabled = true;
+            showStatus("Voice mode stopped");
         }
 
+        // Initialize the app
         fetchAllPosts();
+
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            stopVoiceMode();
+        });
     </script>
 </body>
 </html>
