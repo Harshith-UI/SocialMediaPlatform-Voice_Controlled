@@ -44,7 +44,8 @@
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
 
                 if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
-                    posts = data.posts.reverse();
+                    // ✅ Sort posts by timestamp (latest first)
+                    posts = data.posts.sort((a, b) => b.timestamp - a.timestamp);
                     currentIndex = 0;
                     updatePostDisplay();
                 } else {
@@ -144,7 +145,7 @@
                         }, 500);
                     }
                     fetchNextPost();
-                } else if (lastResult === "go back" || lastResult === "previous") {
+                } else if (lastResult === "back" || lastResult === "previous") {
                     fetchPreviousPost();
                 } else if (lastResult.startsWith("create post")) {
                     const postContent = lastResult.replace("create post", "").trim();
