@@ -34,7 +34,7 @@
         let recognition;
         let isListening = true;
         let lastCommand = "";
-        let recognitionActive = false; // ✅ Tracks if recognition is running
+        let recognitionActive = false;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -131,19 +131,7 @@
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 console.log("Recognized Speech:", lastResult);
 
-                // ✅ Fix: Restart only if necessary (prevents duplicate start errors)
                 if (lastResult === "next") {
-                    if (lastCommand === "next") {
-                        console.log("Forcing recognition reset to detect 'next' properly...");
-                        recognition.stop();
-                        recognitionActive = false;
-                        setTimeout(() => {
-                            if (!recognitionActive) {
-                                recognition.start();
-                                recognitionActive = true;
-                            }
-                        }, 500);
-                    }
                     fetchNextPost();
                 } else if (lastResult === "go back" || lastResult === "previous") {
                     fetchPreviousPost();
@@ -179,13 +167,22 @@
 
             recognition.start();
             recognitionActive = true; // ✅ Mark recognition as active
+
+            // ✅ Automatically restart recognition every 10 seconds (to avoid long inactivity issues)
+            setInterval(() => {
+                if (isListening && !recognitionActive) {
+                    console.log("Forcing recognition restart to prevent inactivity...");
+                    recognition.start();
+                    recognitionActive = true;
+                }
+            }, 10000); // Restart every 10 seconds
         }
 
         function stopVoiceMode() {
             isListening = false;
             if (recognition) {
                 recognition.stop();
-                recognitionActive = false; // ✅ Mark recognition as stopped
+                recognitionActive = false;
                 showStatus("⛔ Voice mode stopped.", 'error');
             }
         }
