@@ -38,7 +38,6 @@
         let posts = [];
         let currentIndex = 0;
         let transcribeSocket = null;
-        let isRecording = false;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
         const region = "us-east-1";
         const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a";
@@ -95,9 +94,45 @@
             await initializeAWS();
             const credentials = AWS.config.credentials;
             const endpoint = `transcribestreaming.${region}.amazonaws.com:8443`;
-            const requestDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+            const service = "transcribe";
+            const date = new Date();
+            const requestDate = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
             const dateStamp = requestDate.slice(0, 8);
-            const credentialScope = `${dateStamp}/${region}/transcribe/aws4_request`;
+            const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+
+            const queryString = {
+                "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+                "X-Amz-Credential": encodeURIComponent(`${credentials.accessKeyId}/${credentialScope}`),
+                "X-Amz-Date": requestDate,
+                "X-Amz-Expires": "300",
+                "X-Amz-Security-Token": encodeURIComponent(credentials.sessionToken),
+                "X-Amz-SignedHeaders": "host",
+                "language-code": "en-US",
+                "media-encoding": "pcm",
+                "sample-rate": "16000"
+            };
+
+            const canonicalQueryString = Object.entries(queryString)
+                .map(([key, value]) => `${key}=${value}`)
+                .sort()
+                .join("&");
+
+            const canonicalRequest = [
+                "GET",
+                "/stream-transcription-websocket",
+                canonicalQueryString,
+                `host:${endpoint}`,
+                "",
+                "host",
+                "UNSIGNED-PAYLOAD"
+            ].join("\n");
+
+            const stringToSign = [
+                "AWS4-HMAC-SHA256",
+                requestDate,
+                credentialScope,
+                CryptoJS.SHA256(canonicalRequest).toString()
+            ].join("\n");
 
             function sign(key, msg) {
                 return CryptoJS.HmacSHA256(msg, key);
@@ -105,48 +140,19 @@
 
             const kDate = sign(`AWS4${credentials.secretAccessKey}`, dateStamp);
             const kRegion = sign(kDate, region);
-            const kService = sign(kRegion, 'transcribe');
-            const kSigning = sign(kService, 'aws4_request');
-
-            const canonicalQuerystring = [
-                `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
-                `X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId + '/' + credentialScope)}`,
-                `X-Amz-Date=${requestDate}`,
-                `X-Amz-Security-Token=${encodeURIComponent(credentials.sessionToken)}`,
-                `X-Amz-SignedHeaders=host`,  // 🔥 Required for AWS Signature v4
-                `language-code=en-US`,
-                `media-encoding=pcm`,
-                `sample-rate=16000`
-            ].join('&');
-
-            const canonicalRequest = [
-                'GET',
-                '/stream-transcription-websocket',
-                canonicalQuerystring,
-                'host:' + endpoint,
-                '',
-                'host',
-                'UNSIGNED-PAYLOAD'
-            ].join('\n');
-
-            const stringToSign = [
-                'AWS4-HMAC-SHA256',
-                requestDate,
-                credentialScope,
-                CryptoJS.SHA256(canonicalRequest)
-            ].join('\n');
-
+            const kService = sign(kRegion, service);
+            const kSigning = sign(kService, "aws4_request");
             const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString(CryptoJS.enc.Hex);
 
-            return `wss://${endpoint}/stream-transcription-websocket?${canonicalQuerystring}&X-Amz-Signature=${signature}`;
+            return `wss://${endpoint}/stream-transcription-websocket?${canonicalQueryString}&X-Amz-Signature=${signature}`;
         }
 
         async function startVoiceMode() {
             try {
                 showStatus("Requesting microphone permission...");
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                stream.getTracks().forEach(track => track.stop()); // Release mic after checking
-                
+                stream.getTracks().forEach(track => track.stop());
+
                 showStatus("Starting voice mode...");
                 const signedUrl = await getSignedTranscribeUrl();
                 transcribeSocket = new WebSocket(signedUrl);
@@ -197,15 +203,8 @@
                     } catch (error) {
                         console.error("🚨 Invalid JSON from Transcribe:", text);
                     }
-                } else {
-                    console.warn("Ignoring non-JSON Transcribe response:", text);
                 }
             }
-        }
-
-        function stopVoiceMode() {
-            if (transcribeSocket) transcribeSocket.close();
-            showStatus("⛔ Voice mode stopped");
         }
 
         fetchAllPosts();
