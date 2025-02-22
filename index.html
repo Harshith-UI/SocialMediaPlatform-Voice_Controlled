@@ -4,154 +4,49 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice-Powered Social Media</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        #post-content {
-            min-height: 100px;
-            border: 1px solid #ddd;
-            padding: 10px;
-            margin: 20px 0;
-            border-radius: 5px;
-        }
-        textarea {
-            width: 100%;
-            min-height: 100px;
-            margin: 10px 0;
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px solid #ddd;
-        }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            margin: 5px;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        #debug-output {
-            background-color: #f5f5f5;
-            padding: 10px;
-            border-radius: 5px;
-            margin-top: 20px;
-            display: none;
-            white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 12px;
-        }
-        .status {
-            margin-top: 10px;
-            font-style: italic;
-            color: #666;
-        }
-    </style>
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
-    
+
     <div id="post-content">Loading...</div>
-    <p id="post-status" class="status"></p>
-    
-    <div>
-        <button onclick="fetchPreviousPost()">⬅️ Previous Post</button>
-        <button onclick="fetchNextPost()">Next Post ➡️</button>
-    </div>
+
+    <button onclick="fetchPreviousPost()">Previous Post</button>
+    <button onclick="fetchNextPost()">Next Post</button>
 
     <h2>Create a Post</h2>
     <textarea id="new-post" placeholder="Write something..."></textarea>
-    <button onclick="submitPost()">📝 Post</button>
+    <button onclick="submitPost()">Post</button>
 
     <h2>Voice Assistant</h2>
-    <button id="start-voice-btn" onclick="startVoiceMode()">🎙️ Start Voice Mode</button>
-    <button id="stop-voice-btn" onclick="stopVoiceMode()" disabled>⛔ Stop Voice Mode</button>
-    <p id="voice-status" class="status"></p>
+    <button onclick="startVoiceMode()">🎤 Start Voice Mode</button>
+    <button onclick="stopVoiceMode()">⛔ Stop Voice Mode</button>
 
-    <div>
-        <label>
-            <input type="checkbox" id="show-debug" onclick="toggleDebug()">
-            Show Debug Information
-        </label>
-    </div>
-    <div id="debug-output"></div>
-
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.931.0.min.js"></script>
     <script>
         let posts = [];
         let currentIndex = 0;
-        let transcribeSocket = null;
-        let mediaRecorder = null;
-        let audioChunks = [];
-        let isRecording = false;
+        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; 
+        const region = "us-east-1";
+        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a"; 
 
-        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
-        const region = "us-east-1"; // AWS Region
-        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a"; // Cognito Identity Pool ID
-
-        // Debug logging
-        function log(message, data) {
-            const debugOutput = document.getElementById("debug-output");
-            const timestamp = new Date().toISOString();
-            
-            if (data) {
-                let displayData = data;
-                if (typeof data === 'object') {
-                    try {
-                        displayData = JSON.stringify(data, null, 2);
-                    } catch (e) {
-                        displayData = "[Object cannot be stringified]";
-                    }
-                }
-                debugOutput.textContent += `${timestamp}: ${message}\n${displayData}\n\n`;
-            } else {
-                debugOutput.textContent += `${timestamp}: ${message}\n\n`;
-            }
-            
-            debugOutput.scrollTop = debugOutput.scrollHeight;
-        }
-
-        function toggleDebug() {
-            const debugOutput = document.getElementById("debug-output");
-            debugOutput.style.display = document.getElementById("show-debug").checked ? "block" : "none";
-        }
-
-        // Update UI status
-        function updateStatus(elementId, message) {
-            document.getElementById(elementId).textContent = message;
-        }
-
-        // Fetch all posts from API
         async function fetchAllPosts() {
-            updateStatus("post-status", "Fetching posts...");
             try {
                 const response = await fetch(apiUrl);
-                const result = await response.json();
-                log("API response", result);
+                const data = await response.json();
                 
-                let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
+                if (typeof data.body === 'string') {
+                    data.body = JSON.parse(data.body);
+                }
 
-                if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
-                    posts = data.posts.reverse();
+                if (data.body.posts && data.body.posts.length > 0) {
+                    posts = data.body.posts.reverse();
                     currentIndex = 0;
                     document.getElementById("post-content").innerText = posts[currentIndex].content;
-                    updateStatus("post-status", `Showing post 1 of ${posts.length}`);
                 } else {
                     document.getElementById("post-content").innerText = "No posts available!";
-                    updateStatus("post-status", "No posts found");
                 }
             } catch (error) {
                 console.error("Error fetching posts:", error);
-                log("Error fetching posts", error);
                 document.getElementById("post-content").innerText = "Error loading posts.";
-                updateStatus("post-status", `Error: ${error.message}`);
             }
         }
 
@@ -159,10 +54,8 @@
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
-                updateStatus("post-status", `Showing post ${currentIndex + 1} of ${posts.length}`);
             } else {
                 document.getElementById("post-content").innerText = "No more posts!";
-                updateStatus("post-status", "This is the last post");
             }
         }
 
@@ -170,10 +63,8 @@
             if (currentIndex > 0) {
                 currentIndex--;
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
-                updateStatus("post-status", `Showing post ${currentIndex + 1} of ${posts.length}`);
             } else {
                 document.getElementById("post-content").innerText = "This is the first post!";
-                updateStatus("post-status", "This is the first post");
             }
         }
 
@@ -184,7 +75,6 @@
                 return;
             }
 
-            updateStatus("post-status", "Submitting post...");
             try {
                 const response = await fetch(apiUrl, {
                     method: "POST",
@@ -192,275 +82,106 @@
                     body: JSON.stringify({ content })
                 });
 
-                if (response.ok) {
-                    alert("Post stored successfully!");
-                    document.getElementById("new-post").value = "";
-                    updateStatus("post-status", "Post submitted successfully");
-                    fetchAllPosts();
-                } else {
-                    throw new Error(`Failed to store post. Status: ${response.status}`);
-                }
+                const result = await response.json();
+                alert("Post stored successfully!");
+                document.getElementById("new-post").value = "";
+                await fetchAllPosts();
             } catch (error) {
                 console.error("Error posting:", error);
-                log("Error posting", error);
-                alert("Error posting: " + error.message);
-                updateStatus("post-status", `Error: ${error.message}`);
+                alert("Error posting!");
             }
         }
 
-        // Start Voice Mode (Amazon Transcribe Streaming)
+        // AWS Transcribe Voice Integration
+        let transcribeSocket;
+        let audioStream;
+        let mediaRecorder;
+        let audioChunks = [];
+
+        async function getCredentials() {
+            const response = await fetch(`https://cognito-identity.${region}.amazonaws.com/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityService.GetId" },
+                body: JSON.stringify({ IdentityPoolId: identityPoolId })
+            });
+            const { IdentityId } = await response.json();
+
+            const credsResponse = await fetch(`https://cognito-identity.${region}.amazonaws.com/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity" },
+                body: JSON.stringify({ IdentityId })
+            });
+
+            const credsData = await credsResponse.json();
+            return credsData.Credentials;
+        }
+
         async function startVoiceMode() {
-            updateStatus("voice-status", "Initializing voice mode...");
-            document.getElementById("start-voice-btn").disabled = true;
-            document.getElementById("stop-voice-btn").disabled = false;
-            
-            try {
-                // Configure AWS SDK
-                AWS.config.region = region;
-                AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: identityPoolId });
-                
-                await new Promise((resolve, reject) => {
-                    AWS.config.credentials.get(function(err) {
-                        if (err) {
-                            reject(err);
-                            return;
-                        }
-                        resolve();
-                    });
-                });
-                
-                log("AWS credentials obtained", {
-                    identityId: AWS.config.credentials.identityId,
-                    authenticated: AWS.config.credentials.authenticated
-                });
-                
-                // Get user media for audio capture
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                log("Media stream obtained");
-                
-                // Setup WebSocket connection to Amazon Transcribe
-                setupTranscribeWebSocket();
-                
-                // Setup media recorder to capture audio
-                setupMediaRecorder(stream);
-                
-                updateStatus("voice-status", "Voice mode active. Say commands like 'Next post', 'Previous post', or 'Create post [your message]'");
-            } catch (error) {
-                console.error("Error starting voice mode:", error);
-                log("Error starting voice mode", error);
-                alert(`Error starting voice mode: ${error.message}`);
-                updateStatus("voice-status", `Error: ${error.message}`);
-                stopVoiceMode();
-            }
-        }
-        
-        function setupTranscribeWebSocket() {
-            const credentials = AWS.config.credentials;
-            const accessKeyId = encodeURIComponent(credentials.accessKeyId);
-            const secretAccessKey = credentials.secretAccessKey;
-            const sessionToken = encodeURIComponent(credentials.sessionToken);
-            
-            // Create a signed URL for the WebSocket connection
-            const currentDate = new Date();
-            const dateString = currentDate.toISOString().replace(/[:\-]|\.\d{3}/g, '');
-            const dateStringYMD = dateString.substring(0, 8);
-            
-            // Properly format the WebSocket URL with correct encoding of credentials
-            const transcribeUrl = `wss://transcribestreaming.${region}.amazonaws.com:8443/stream-transcription-websocket?` +
-                `language-code=en-US&` +
-                `media-encoding=pcm&` +
-                `sample-rate=44100&` +
-                `X-Amz-Algorithm=AWS4-HMAC-SHA256&` +
-                `X-Amz-Credential=${accessKeyId}%2F${dateStringYMD}%2F${region}%2Ftranscribe%2Faws4_request&` +
-                `X-Amz-Date=${dateString.substring(0, 16)}&` +
-                `X-Amz-Expires=300&` +
-                `X-Amz-Security-Token=${sessionToken}`;
-            
-            log("Connecting to Transcribe WebSocket", transcribeUrl);
-            
-            transcribeSocket = new WebSocket(transcribeUrl);
-            
+            const creds = await getCredentials();
+            const transcribeURL = `wss://transcribestreaming.${region}.amazonaws.com:8443/stream-transcription-websocket?language-code=en-US&media-encoding=pcm&sample-rate=16000&X-Amz-Security-Token=${encodeURIComponent(creds.SessionToken)}&X-Amz-Date=${new Date().toISOString().replace(/[:\-]|\.\d{3}/g, '')}&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(`${creds.AccessKeyId}/${new Date().toISOString().split('T')[0].replace(/-/g, '')}/${region}/transcribe/aws4_request`)}&X-Amz-SignedHeaders=host&X-Amz-Signature=`;
+
+            transcribeSocket = new WebSocket(transcribeURL);
             transcribeSocket.onopen = () => {
-                log("Transcribe WebSocket connected");
-                isRecording = true;
+                console.log("Transcribe WebSocket connected.");
+                alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
+                startAudioStream();
             };
-            
-            transcribeSocket.onclose = (event) => {
-                log(`Transcribe WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`);
-                isRecording = false;
-            };
-            
-            transcribeSocket.onerror = (error) => {
-                console.error("Transcribe WebSocket Error:", error);
-                log("Transcribe WebSocket Error", { message: error.message });
-            };
-            
+
             transcribeSocket.onmessage = async (event) => {
-                try {
-                    // Handle both string and blob data
-                    let rawText;
-                    if (event.data instanceof Blob) {
-                        rawText = await event.data.text();
-                    } else {
-                        rawText = event.data;
-                    }
-                    
-                    // Log raw message for debugging
-                    log("Received WebSocket message", rawText.substring(0, 200) + (rawText.length > 200 ? "..." : ""));
-                    
-                    try {
-                        const message = JSON.parse(rawText);
-                        
-                        // Process transcription results
-                        if (message.TranscriptEvent && 
-                            message.TranscriptEvent.Transcript && 
-                            message.TranscriptEvent.Transcript.Results && 
-                            message.TranscriptEvent.Transcript.Results.length > 0) {
-                            
-                            const results = message.TranscriptEvent.Transcript.Results;
-                            
-                            // Find results that are not partial (IsPartial: false)
-                            for (const result of results) {
-                                if (!result.IsPartial && result.Alternatives && result.Alternatives.length > 0) {
-                                    const transcript = result.Alternatives[0].Transcript.trim().toLowerCase();
-                                    
-                                    log("Processing final transcript", transcript);
-                                    processVoiceCommand(transcript);
+                if (event.data instanceof Blob) {
+                    event.data.text().then((text) => {
+                        try {
+                            if (text.startsWith("{")) {
+                                const message = JSON.parse(text);
+                                if (message.results && message.results.length > 0) {
+                                    const transcript = message.results[0].alternatives[0].transcript.trim().toLowerCase();
+                                    console.log("Received transcript:", transcript);
+
+                                    if (transcript === "next post") {
+                                        fetchNextPost();
+                                    } else if (transcript === "previous post") {
+                                        fetchPreviousPost();
+                                    } else if (transcript.startsWith("create post")) {
+                                        const postContent = transcript.replace("create post", "").trim();
+                                        if (postContent) {
+                                            document.getElementById("new-post").value = postContent;
+                                            submitPost();
+                                        }
+                                    }
                                 }
+                            } else {
+                                console.warn("Received non-JSON data from Transcribe:", text);
                             }
+                        } catch (error) {
+                            console.error("Error parsing Transcribe response:", error);
                         }
-                    } catch (parseError) {
-                        console.error("Error parsing WebSocket message:", parseError);
-                        log("JSON parse error", { 
-                            error: parseError.message,
-                            data: rawText.substring(0, 100)
-                        });
-                    }
-                } catch (error) {
-                    console.error("Error processing WebSocket message:", error);
-                    log("WebSocket message processing error", error);
+                    });
                 }
             };
-        }
-        
-        function setupMediaRecorder(stream) {
-            // Create AudioContext to process the audio stream
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const source = audioContext.createMediaStreamSource(stream);
-            const processor = audioContext.createScriptProcessor(1024, 1, 1);
-            
-            source.connect(processor);
-            processor.connect(audioContext.destination);
-            
-            processor.onaudioprocess = (e) => {
-                if (isRecording && transcribeSocket && transcribeSocket.readyState === WebSocket.OPEN) {
-                    // Convert audio data to binary
-                    const inputData = e.inputBuffer.getChannelData(0);
-                    
-                    // Convert float32 to int16
-                    const pcmData = new Int16Array(inputData.length);
-                    for (let i = 0; i < inputData.length; i++) {
-                        pcmData[i] = Math.min(1, Math.max(-1, inputData[i])) * 0x7FFF;
-                    }
-                    
-                    // Send binary audio data to WebSocket
-                    const audioEvent = {
-                        AudioEvent: {
-                            AudioChunk: _arrayBufferToBase64(pcmData.buffer)
-                        }
-                    };
-                    
-                    transcribeSocket.send(JSON.stringify(audioEvent));
-                }
-            };
-            
-            // Store cleanup function
-            mediaRecorder = {
-                stream,
-                audioContext,
-                processor,
-                source,
-                stop: () => {
-                    isRecording = false;
-                    processor.disconnect();
-                    source.disconnect();
-                    stream.getTracks().forEach(track => track.stop());
-                    if (audioContext.state !== 'closed') {
-                        audioContext.close();
-                    }
-                }
-            };
-        }
-        
-        // Helper function to convert ArrayBuffer to Base64
-        function _arrayBufferToBase64(buffer) {
-            const bytes = new Uint8Array(buffer);
-            const binary = bytes.reduce((acc, byte) => acc + String.fromCharCode(byte), '');
-            return btoa(binary);
-        }
-        
-        function processVoiceCommand(transcript) {
-            log("Processing voice command", transcript);
-            updateStatus("voice-status", `Heard: "${transcript}"`);
-            
-            if (transcript.includes("next post")) {
-                fetchNextPost();
-            } else if (transcript.includes("previous post")) {
-                fetchPreviousPost();
-            } else if (transcript.includes("create post")) {
-                const postContent = transcript.replace("create post", "").trim();
-                if (postContent) {
-                    document.getElementById("new-post").value = postContent;
-                    submitPost();
-                } else {
-                    updateStatus("voice-status", "Please specify content after 'create post'");
-                }
-            }
+
+            transcribeSocket.onclose = () => console.log("Transcribe WebSocket closed.");
         }
 
         function stopVoiceMode() {
-            updateStatus("voice-status", "Stopping voice mode...");
-            
-            try {
-                // Close WebSocket connection
-                if (transcribeSocket) {
-                    transcribeSocket.close();
-                    transcribeSocket = null;
-                }
-                
-                // Stop media recording
-                if (mediaRecorder) {
-                    mediaRecorder.stop();
-                    mediaRecorder = null;
-                }
-                
-                isRecording = false;
-                document.getElementById("start-voice-btn").disabled = false;
-                document.getElementById("stop-voice-btn").disabled = true;
-                updateStatus("voice-status", "Voice mode stopped");
-                log("Voice mode stopped successfully");
-            } catch (error) {
-                console.error("Error stopping voice mode:", error);
-                log("Error stopping voice mode", error);
-                updateStatus("voice-status", `Error stopping: ${error.message}`);
-            }
-        }
-
-        // Initial load of posts
-        window.onload = function() {
-            fetchAllPosts();
-            log("Application initialized");
-        };
-
-        // Cleanup on page unload
-        window.onbeforeunload = function() {
             if (transcribeSocket) {
                 transcribeSocket.close();
+                transcribeSocket = null;
             }
-            if (mediaRecorder) {
-                mediaRecorder.stop();
-            }
-        };
+            alert("Voice mode stopped.");
+        }
+
+        async function startAudioStream() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    transcribeSocket.send(event.data);
+                }
+            };
+            mediaRecorder.start(500);
+        }
+
+        fetchAllPosts();
     </script>
 </body>
 </html>
