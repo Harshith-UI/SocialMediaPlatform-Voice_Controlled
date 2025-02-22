@@ -145,7 +145,7 @@
                         }, 500);
                     }
                     fetchNextPost();
-                } else if (lastResult === "back" || lastResult === "previous") {
+                } else if (lastResult === "go back" || lastResult === "previous") {
                     fetchPreviousPost();
                 } else if (lastResult.startsWith("create post")) {
                     const postContent = lastResult.replace("create post", "").trim();
