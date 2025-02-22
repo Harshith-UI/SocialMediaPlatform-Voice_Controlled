@@ -47,7 +47,7 @@
         let isListening = false;
         let isRecordingPost = false;
         let currentPostContent = "";
-        let lastCommand = "";
+        let lastCommandTime = 0;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -134,6 +134,15 @@
         }
 
         function handleVoiceCommand(command) {
+            const now = Date.now();
+            const timeSinceLastCommand = now - lastCommandTime;
+            
+            // **✅ Fix: Cooldown (500ms) to prevent duplicate commands**
+            if (timeSinceLastCommand < 500) {
+                return;
+            }
+
+            lastCommandTime = now;
             console.log("Recognized Speech:", command);
 
             if (isRecordingPost) {
@@ -144,21 +153,19 @@
                     document.getElementById("new-post").value = currentPostContent.trim();
                 }
             } else {
-                if (command === "next") {
-                    fetchNextPost();
-                    
-                    // **🔴 FIXED: Force Restart for Continuous "Next"**
-                    if (lastCommand === "next") {
-                        recognition.stop();
-                        setTimeout(() => recognition.start(), 500);
-                    }
-                } else if (command === "go back" || command === "previous") {
-                    fetchPreviousPost();
-                } else if (command === "create post") {
-                    startRecordingPost();
+                switch (command) {
+                    case "next":
+                        fetchNextPost();
+                        break;
+                    case "go back":
+                    case "previous":
+                        fetchPreviousPost();
+                        break;
+                    case "create post":
+                        startRecordingPost();
+                        break;
                 }
             }
-            lastCommand = command;
         }
 
         function startVoiceRecognition() {
