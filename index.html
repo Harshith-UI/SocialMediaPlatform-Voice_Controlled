@@ -122,6 +122,14 @@
             currentPostContent = "";
         }
 
+        function restartRecognition() {
+            setTimeout(() => {
+                if (isListening) {
+                    recognition.start();
+                }
+            }, 500); // ✅ Small delay to prevent rapid restarts
+        }
+
         function startAlwaysOnVoiceMode() {
             if (!("webkitSpeechRecognition" in window)) return;
 
@@ -145,10 +153,13 @@
                 } else {
                     if (lastResult === "next") {
                         fetchNextPost();
+                        restartRecognition(); // ✅ Ensures continuous "Next" recognition
                     } else if (lastResult === "go back" || lastResult === "previous") {
                         fetchPreviousPost();
+                        restartRecognition();
                     } else if (lastResult === "create post") {
                         startRecordingPost();
+                        restartRecognition();
                     }
                 }
 
@@ -160,12 +171,13 @@
                 if (isRecordingPost) {
                     stopRecordingPost();
                 }
+                restartRecognition();
             };
 
             recognition.onend = function() {
                 if (isListening) {
                     console.log("Restarting recognition...");
-                    recognition.start();
+                    restartRecognition();
                 }
             };
 
