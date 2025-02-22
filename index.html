@@ -6,29 +6,17 @@
     <title>Voice-Powered Social Media</title>
     <link rel="icon" type="image/png" href="favicon.ico">
     <style>
-        .error { display: none; }
+        .error { display: none; } /* ✅ Hides error messages */
         .success { color: green; }
         .status { margin: 10px 0; }
         button { margin: 5px; padding: 8px; }
         textarea { width: 100%; min-height: 100px; margin: 10px 0; }
-        .recording { 
-            background-color: #ffecec;
-            padding: 10px;
-            border-radius: 5px;
-            display: none;
-        }
-        #current-post-number {
-            margin: 10px 0;
-            font-style: italic;
-        }
     </style>
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
     
     <div id="status-message" class="status"></div>
-    <div id="recording-status" class="recording">Recording post... Say "stop writing" when finished.</div>
-    <div id="current-post-number"></div>
     <div id="post-content">Loading...</div>
     
     <div>
@@ -44,11 +32,8 @@
         let posts = [];
         let currentIndex = 0;
         let recognition;
-        let isListening = false;
-        let isRecordingPost = false;
-        let currentPostContent = "";
-        let lastCommandTime = 0;
-        let cooldownPeriod = 500;  // 500ms cooldown to avoid duplicate commands
+        let isListening = true;
+        let lastCommand = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -66,18 +51,14 @@
                 }
             } catch (error) {
                 console.error("Error fetching posts:", error);
-                document.getElementById("status-message").innerText = "Error loading posts. Please try again.";
             }
         }
 
         function updatePostDisplay() {
             if (posts[currentIndex]) {
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
-                document.getElementById("current-post-number").innerText = 
-                    `Post ${currentIndex + 1} of ${posts.length}`;
             } else {
                 document.getElementById("post-content").innerText = "No posts available!";
-                document.getElementById("current-post-number").innerText = "";
             }
         }
 
@@ -108,84 +89,43 @@
 
                 if (response.ok) {
                     document.getElementById("new-post").value = "";
-                    document.getElementById("status-message").innerText = "Post created successfully!";
                     await fetchAllPosts();
                 }
             } catch (error) {
                 console.error("Error posting:", error);
-                document.getElementById("status-message").innerText = "Error creating post. Please try again.";
             }
         }
 
-        function startRecordingPost() {
-            isRecordingPost = true;
-            currentPostContent = "";
-            document.getElementById("recording-status").style.display = "block";
-            document.getElementById("new-post").value = "";
-        }
+        function startAlwaysOnVoiceMode() {
+            if (!("webkitSpeechRecognition" in window)) return;
 
-        function stopRecordingPost() {
-            isRecordingPost = false;
-            document.getElementById("recording-status").style.display = "none";
-            if (currentPostContent.trim()) {
-                document.getElementById("new-post").value = currentPostContent.trim();
-                submitPost();
-            }
-            currentPostContent = "";
-        }
-
-        function handleVoiceCommand(command) {
-            const now = Date.now();
-            if (now - lastCommandTime < cooldownPeriod) {
-                return;
-            }
-            lastCommandTime = now;
-
-            console.log("Recognized Speech:", command);
-
-            if (isRecordingPost) {
-                if (command === "stop writing") {
-                    stopRecordingPost();
-                } else {
-                    currentPostContent += " " + command;
-                    document.getElementById("new-post").value = currentPostContent.trim();
-                }
-            } else {
-                if (command === "next") {
-                    fetchNextPost();
-                } else if (command === "go back" || command === "previous") {
-                    fetchPreviousPost();
-                } else if (command === "create post") {
-                    startRecordingPost();
-                }
-            }
-        }
-
-        function startVoiceRecognition() {
-            if (!("webkitSpeechRecognition" in window)) {
-                document.getElementById("status-message").innerText = 
-                    "Voice recognition not supported in this browser.";
-                return;
-            }
-
+            isListening = true;
             recognition = new webkitSpeechRecognition();
             recognition.continuous = true;
-            recognition.interimResults = true;  // ✅ Enables real-time display of speech while recording
+            recognition.interimResults = false;
             recognition.lang = "en-US";
 
             recognition.onresult = function(event) {
-                let result = "";
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    result += event.results[i][0].transcript + " ";
-                }
-                result = result.trim().toLowerCase();
+                let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+                console.log("Recognized Speech:", lastResult);
 
-                if (isRecordingPost) {
-                    document.getElementById("new-post").value = result;
-                    currentPostContent = result;
-                } else {
-                    handleVoiceCommand(result);
+                if (lastResult === "next") {
+                    if (lastCommand === "next") {
+                        recognition.stop();
+                        setTimeout(() => recognition.start(), 500);
+                    }
+                    fetchNextPost();
+                } else if (lastResult === "go back" || lastResult === "previous") {
+                    fetchPreviousPost();
+                } else if (lastResult.startsWith("create post")) {
+                    const postContent = lastResult.replace("create post", "").trim();
+                    if (postContent) {
+                        document.getElementById("new-post").value = postContent;
+                        submitPost();
+                    }
                 }
+
+                lastCommand = lastResult;
             };
 
             recognition.onerror = function(event) {
@@ -194,31 +134,12 @@
 
             recognition.onend = function() {
                 if (isListening) {
-                    setTimeout(() => {
-                        if (!isListening) return;
-                        try {
-                            recognition.start();
-                        } catch (e) {
-                            console.error("Error restarting recognition:", e);
-                        }
-                    }, 500);
+                    console.log("Restarting recognition...");
+                    recognition.start();
                 }
             };
-        }
 
-        function startAlwaysOnVoiceMode() {
-            if (!recognition) {
-                startVoiceRecognition();
-            }
-            if (!isListening) {
-                isListening = true;
-                try {
-                    recognition.start();
-                    document.getElementById("status-message").innerText = "Voice recognition active";
-                } catch (e) {
-                    console.error("Error starting recognition:", e);
-                }
-            }
+            recognition.start();
         }
 
         function stopVoiceMode() {
@@ -226,16 +147,13 @@
             if (recognition) {
                 recognition.stop();
             }
-            if (isRecordingPost) {
-                stopRecordingPost();
-            }
-            document.getElementById("status-message").innerText = "Voice recognition stopped";
         }
 
         window.onload = function() {
             startAlwaysOnVoiceMode();
-            fetchAllPosts();
         };
+
+        fetchAllPosts();
     </script>
 </body>
 </html>
