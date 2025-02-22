@@ -118,6 +118,10 @@
 
         async function startVoiceMode() {
             try {
+                showStatus("Requesting microphone permission...");
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => track.stop()); // Release mic after checking
+                
                 showStatus("Starting voice mode...");
                 const signedUrl = await getSignedTranscribeUrl();
                 transcribeSocket = new WebSocket(signedUrl);
@@ -126,7 +130,6 @@
                     showStatus("✅ Voice mode activated!");
                     document.getElementById("startVoice").disabled = true;
                     document.getElementById("stopVoice").disabled = false;
-                    isRecording = true;
                 };
 
                 transcribeSocket.onerror = (error) => {
@@ -136,16 +139,21 @@
 
                 transcribeSocket.onmessage = handleTranscribeMessage;
             } catch (error) {
-                showStatus("Error starting voice mode: " + error.message, 'error');
+                showStatus("Error accessing microphone: " + error.message, 'error');
             }
         }
 
-        function handleTranscribeMessage(event) {
+        async function handleTranscribeMessage(event) {
             if (event.data instanceof Blob) {
-                event.data.text().then((text) => {
+                const text = await event.data.text();
+
+                console.log("Received Transcribe Data:", text);
+
+                if (text.trim().startsWith("{") || text.trim().startsWith("[")) {
                     try {
                         const message = JSON.parse(text);
-                        if (message.Results && message.Results[0] && message.Results[0].Alternatives[0]) {
+
+                        if (message.Results && message.Results.length > 0) {
                             const transcript = message.Results[0].Alternatives[0].Transcript.trim().toLowerCase();
                             console.log("Recognized Speech:", transcript);
 
@@ -162,9 +170,11 @@
                             }
                         }
                     } catch (error) {
-                        console.error("🚨 Invalid JSON from Transcribe:", event.data);
+                        console.error("🚨 Invalid JSON from Transcribe:", text);
                     }
-                });
+                } else {
+                    console.warn("Ignoring non-JSON Transcribe response:", text);
+                }
             }
         }
 
