@@ -158,7 +158,10 @@
             recognition.onend = function() {
                 if (isListening) {
                     console.log("Restarting recognition...");
-                    recognition.start();
+                    setTimeout(() => {
+                        if (!isListening) return;
+                        recognition.start();
+                    }, 500); // ✅ Small delay to prevent rapid restarts
                 }
             };
         }
