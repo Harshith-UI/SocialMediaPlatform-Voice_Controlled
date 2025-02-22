@@ -42,48 +42,20 @@
         let isRecording = false;
         let mediaStream = null;
         let audioContext = null;
-        let workletNode = null;
         
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
         const region = "us-east-1";
         const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a";
 
-        // Initialize AWS credentials
-        async function initializeAWS() {
-            try {
-                AWS.config.region = region;
-                AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-                    IdentityPoolId: identityPoolId
-                });
-                await AWS.config.credentials.getPromise();
-                return true;
-            } catch (error) {
-                showStatus('Failed to initialize AWS credentials: ' + error.message, 'error');
-                return false;
-            }
-        }
-
-        function showStatus(message, type = 'success') {
-            const statusDiv = document.getElementById('status-message');
-            statusDiv.textContent = message;
-            statusDiv.className = 'status ' + type;
-            setTimeout(() => {
-                statusDiv.textContent = '';
-                statusDiv.className = 'status';
-            }, 5000);
-        }
-
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                const result = await response.json();
-                let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
-
-                if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
-                    posts = data.posts.reverse();
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const data = await response.json();
+                posts = (data.posts || []).reverse();
+                
+                if (posts.length > 0) {
                     currentIndex = 0;
                     updatePostDisplay();
                 } else {
@@ -95,7 +67,8 @@
         }
 
         function updatePostDisplay() {
-            document.getElementById("post-content").innerText = posts[currentIndex].content;
+            const content = posts[currentIndex]?.content || "No post content";
+            document.getElementById("post-content").innerText = content;
             document.getElementById("prevButton").disabled = currentIndex <= 0;
             document.getElementById("nextButton").disabled = currentIndex >= posts.length - 1;
         }
@@ -140,110 +113,49 @@
             }
         }
 
-        async function getSignedTranscribeUrl() {
-            if (!await initializeAWS()) {
-                throw new Error("Failed to initialize AWS credentials");
-            }
-
-            const credentials = AWS.config.credentials;
-            const endpoint = `transcribestreaming.${region}.amazonaws.com:8443`;
-            const requestDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
-            const dateStamp = requestDate.slice(0, 8);
-            const credentialScope = `${dateStamp}/${region}/transcribe/aws4_request`;
-
-            const canonicalQuerystring = [
-                'X-Amz-Algorithm=AWS4-HMAC-SHA256',
-                `X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId + '/' + credentialScope)}`,
-                `X-Amz-Date=${requestDate}`,
-                `X-Amz-Expires=300`,
-                'X-Amz-SignedHeaders=host',
-                `X-Amz-Security-Token=${encodeURIComponent(credentials.sessionToken)}`,
-                'language-code=en-US',
-                'media-encoding=pcm',
-                'sample-rate=16000'
-            ].sort().join('&');
-
-            const stringToSign = [
-                'AWS4-HMAC-SHA256',
-                requestDate,
-                credentialScope,
-                CryptoJS.SHA256(canonicalQuerystring)
-            ].join('\n');
-
-            const kDate = CryptoJS.HmacSHA256(dateStamp, 'AWS4' + credentials.secretAccessKey);
-            const kRegion = CryptoJS.HmacSHA256(region, kDate);
-            const kService = CryptoJS.HmacSHA256('transcribe', kRegion);
-            const kSigning = CryptoJS.HmacSHA256('aws4_request', kService);
-            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString();
-
-            return `wss://${endpoint}/stream-transcription-websocket?${canonicalQuerystring}&X-Amz-Signature=${signature}`;
+        function showStatus(message, type = 'success') {
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + type;
+            console.log(`${type.toUpperCase()}: ${message}`);
         }
 
-        // Audio Worklet processor code
-        const workletCode = `
-            class AudioProcessor extends AudioWorkletProcessor {
-                constructor() {
-                    super();
-                    this.bufferSize = 16384;
-                    this.buffer = new Float32Array(this.bufferSize);
-                    this.bytesWritten = 0;
-                }
-                
-                process(inputs) {
-                    const input = inputs[0][0];
-                    if (!input) return true;
-
-                    // Add incoming data to buffer
-                    for (let i = 0; i < input.length; i++) {
-                        if (this.bytesWritten < this.bufferSize) {
-                            this.buffer[this.bytesWritten] = input[i];
-                            this.bytesWritten++;
-                        }
-                    }
-
-                    // If buffer is full, send it
-                    if (this.bytesWritten >= this.bufferSize) {
-                        this.port.postMessage({ audioData: this.buffer });
-                        this.buffer = new Float32Array(this.bufferSize);
-                        this.bytesWritten = 0;
-                    }
-
-                    return true;
-                }
-            }
-            registerProcessor('audio-processor', AudioProcessor);
-        `;
-
-        async function startAudioStream() {
+        async function initializeAudioContext() {
             try {
-                // Create Audio Context and Audio Worklet
-                audioContext = new AudioContext();
-                const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
-                const workletUrl = URL.createObjectURL(workletBlob);
-                await audioContext.audioWorklet.addModule(workletUrl);
-                URL.revokeObjectURL(workletUrl);
-
-                // Get media stream
-                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Request microphone permission first
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+                
+                // Only create AudioContext after permission is granted
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000
+                });
+                
                 const source = audioContext.createMediaStreamSource(mediaStream);
-                workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
-
-                // Handle audio data
-                workletNode.port.onmessage = (e) => {
-                    if (isRecording && transcribeSocket && transcribeSocket.readyState === WebSocket.OPEN) {
-                        const audioData = e.data.audioData;
+                const processor = audioContext.createScriptProcessor(16384, 1, 1);
+                
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+                
+                processor.onaudioprocess = (e) => {
+                    if (isRecording && transcribeSocket?.readyState === WebSocket.OPEN) {
+                        const audioData = e.inputBuffer.getChannelData(0);
                         const pcmData = convertFloat32ToInt16(audioData);
                         transcribeSocket.send(pcmData.buffer);
                     }
                 };
-
-                // Connect nodes
-                source.connect(workletNode);
-                workletNode.connect(audioContext.destination);
-
+                
+                return true;
             } catch (error) {
-                showStatus("Error setting up audio: " + error.message, 'error');
-                throw error;
+                console.error('Audio initialization error:', error);
+                showStatus(`Error initializing audio: ${error.message}`, 'error');
+                return false;
             }
         }
 
@@ -256,21 +168,89 @@
             return int16Array;
         }
 
+        async function getSignedUrl() {
+            try {
+                AWS.config.region = region;
+                AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+                    IdentityPoolId: identityPoolId
+                });
+                await AWS.config.credentials.getPromise();
+                
+                const credentials = AWS.config.credentials;
+                const datetime = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+                const date = datetime.slice(0, 8);
+                const credentialScope = `${date}/${region}/transcribe/aws4_request`;
+                
+                const params = new URLSearchParams({
+                    'language-code': 'en-US',
+                    'media-encoding': 'pcm',
+                    'sample-rate': '16000',
+                    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+                    'X-Amz-Credential': `${credentials.accessKeyId}/${credentialScope}`,
+                    'X-Amz-Date': datetime,
+                    'X-Amz-Expires': '300',
+                    'X-Amz-Security-Token': credentials.sessionToken,
+                    'X-Amz-SignedHeaders': 'host'
+                });
+
+                const signature = await calculateSignature(params.toString(), date, credentials.secretAccessKey);
+                params.append('X-Amz-Signature', signature);
+
+                return `wss://transcribestreaming.${region}.amazonaws.com:8443/stream-transcription-websocket?${params.toString()}`;
+            } catch (error) {
+                console.error('Error getting signed URL:', error);
+                throw new Error('Failed to generate WebSocket URL');
+            }
+        }
+
+        async function calculateSignature(querystring, date, secretKey) {
+            const kDate = CryptoJS.HmacSHA256(date, 'AWS4' + secretKey);
+            const kRegion = CryptoJS.HmacSHA256(region, kDate);
+            const kService = CryptoJS.HmacSHA256('transcribe', kRegion);
+            const kSigning = CryptoJS.HmacSHA256('aws4_request', kService);
+            
+            const canonicalRequest = [
+                'GET',
+                '/stream-transcription-websocket',
+                querystring,
+                'host:transcribestreaming.' + region + '.amazonaws.com:8443',
+                '',
+                'host',
+                'UNSIGNED-PAYLOAD'
+            ].join('\n');
+
+            const stringToSign = [
+                'AWS4-HMAC-SHA256',
+                date + 'T000000Z',
+                `${date}/${region}/transcribe/aws4_request`,
+                CryptoJS.SHA256(canonicalRequest)
+            ].join('\n');
+
+            return CryptoJS.HmacSHA256(stringToSign, kSigning).toString();
+        }
+
         async function startVoiceMode() {
             try {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                // Check browser support
+                if (!navigator.mediaDevices?.getUserMedia) {
                     throw new Error("Your browser doesn't support voice input");
                 }
 
-                const signedUrl = await getSignedTranscribeUrl();
-                transcribeSocket = new WebSocket(signedUrl);
-                
-                transcribeSocket.onopen = async () => {
-                    showStatus("Voice mode activated!");
+                // Initialize audio context first
+                const audioInitialized = await initializeAudioContext();
+                if (!audioInitialized) {
+                    throw new Error("Failed to initialize audio");
+                }
+
+                // Get WebSocket URL
+                const wsUrl = await getSignedUrl();
+                transcribeSocket = new WebSocket(wsUrl);
+
+                transcribeSocket.onopen = () => {
+                    isRecording = true;
                     document.getElementById("startVoice").disabled = true;
                     document.getElementById("stopVoice").disabled = false;
-                    isRecording = true;
-                    await startAudioStream();
+                    showStatus("Voice mode activated!");
                 };
 
                 transcribeSocket.onclose = () => {
@@ -279,22 +259,33 @@
 
                 transcribeSocket.onerror = (error) => {
                     console.error("WebSocket Error:", error);
-                    showStatus("WebSocket error occurred", 'error');
+                    showStatus("Connection error occurred", 'error');
+                    stopVoiceMode();
                 };
 
                 transcribeSocket.onmessage = (event) => {
                     if (event.data instanceof Blob) {
-                        event.data.text().then((text) => {
+                        event.data.text().then(text => {
                             try {
-                                // Handle partial results
-                                const message = JSON.parse(text);
-                                if (message.Transcript) {
-                                    const transcript = message.Transcript.trim().toLowerCase();
-                                    handleTranscript(transcript);
+                                const response = JSON.parse(text);
+                                if (response.Results?.[0]?.Alternatives?.[0]?.Transcript) {
+                                    const transcript = response.Results[0].Alternatives[0].Transcript.trim().toLowerCase();
+                                    console.log("Transcript:", transcript);
+                                    
+                                    if (transcript === "next post") {
+                                        fetchNextPost();
+                                    } else if (transcript === "previous post") {
+                                        fetchPreviousPost();
+                                    } else if (transcript.startsWith("create post")) {
+                                        const content = transcript.replace("create post", "").trim();
+                                        if (content) {
+                                            document.getElementById("new-post").value = content;
+                                            submitPost();
+                                        }
+                                    }
                                 }
                             } catch (error) {
-                                // Ignore parsing errors for partial results
-                                console.debug("Partial result parsing error:", error);
+                                console.debug("Partial result:", text);
                             }
                         });
                     }
@@ -306,33 +297,12 @@
             }
         }
 
-        function handleTranscript(transcript) {
-            console.log("Recognized Speech:", transcript);
-            
-            if (transcript === "next post") {
-                fetchNextPost();
-            } else if (transcript === "previous post") {
-                fetchPreviousPost();
-            } else if (transcript.startsWith("create post")) {
-                const postContent = transcript.replace("create post", "").trim();
-                if (postContent) {
-                    document.getElementById("new-post").value = postContent;
-                    submitPost();
-                }
-            }
-        }
-
         function stopVoiceMode() {
             isRecording = false;
-            
+
             if (transcribeSocket) {
                 transcribeSocket.close();
                 transcribeSocket = null;
-            }
-
-            if (workletNode) {
-                workletNode.disconnect();
-                workletNode = null;
             }
 
             if (mediaStream) {
@@ -353,10 +323,8 @@
         // Initialize the app
         fetchAllPosts();
 
-        // Handle page unload
-        window.addEventListener('beforeunload', () => {
-            stopVoiceMode();
-        });
+        // Clean up on page unload
+        window.addEventListener('beforeunload', stopVoiceMode);
     </script>
 </body>
 </html>
