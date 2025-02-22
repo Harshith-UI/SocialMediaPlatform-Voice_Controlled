@@ -34,7 +34,8 @@
         let recognition;
         let isListening = true;
         let lastCommand = "";
-        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
+        let isWritingPost = false; // ✅ Tracks if user is writing a post
+        let apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
             try {
@@ -109,20 +110,23 @@
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 console.log("Recognized Speech:", lastResult);
 
-                if (lastResult === "next") {
-                    if (lastCommand === "next") {
-                        recognition.stop();
-                        setTimeout(() => recognition.start(), 500);
+                if (isWritingPost) {
+                    if (lastResult === "stop writing") {
+                        isWritingPost = false;
+                        submitPost(); // ✅ Finalizes post
+                    } else {
+                        document.getElementById("new-post").value += " " + lastResult;
                     }
+                    return;
+                }
+
+                if (lastResult === "next") {
                     fetchNextPost();
                 } else if (lastResult === "go back" || lastResult === "previous") {
                     fetchPreviousPost();
-                } else if (lastResult.startsWith("create post")) {
-                    const postContent = lastResult.replace("create post", "").trim();
-                    if (postContent) {
-                        document.getElementById("new-post").value = postContent;
-                        submitPost();
-                    }
+                } else if (lastResult === "create post") {
+                    isWritingPost = true; // ✅ Starts post writing
+                    document.getElementById("new-post").value = ""; // Clear previous text
                 }
 
                 lastCommand = lastResult;
