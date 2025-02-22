@@ -40,6 +40,7 @@
         let currentIndex = 0;
         let recognition;
         let isListening = true;
+        let lastCommand = "";
         let isRecordingPost = false;
         let currentPostContent = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
@@ -150,6 +151,8 @@
                         startRecordingPost();
                     }
                 }
+
+                lastCommand = lastResult;
             };
 
             recognition.onerror = function(event) {
