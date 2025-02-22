@@ -47,7 +47,8 @@
         let isListening = false;
         let isRecordingPost = false;
         let currentPostContent = "";
-        let lastCommand = "";
+        let lastCommandTime = 0;
+        let cooldownPeriod = 500;  // 500ms cooldown to avoid duplicate commands
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -133,35 +134,31 @@
             currentPostContent = "";
         }
 
-        function handleVoiceCommand(command, isFinal) {
+        function handleVoiceCommand(command) {
+            const now = Date.now();
+            if (now - lastCommandTime < cooldownPeriod) {
+                return;
+            }
+            lastCommandTime = now;
+
             console.log("Recognized Speech:", command);
 
             if (isRecordingPost) {
                 if (command === "stop writing") {
                     stopRecordingPost();
                 } else {
-                    // ✅ **Real-Time Text Appearance**
-                    if (isFinal) {
-                        currentPostContent += " " + command;
-                    }
-                    document.getElementById("new-post").value = (currentPostContent + " " + command).trim();
+                    currentPostContent += " " + command;
+                    document.getElementById("new-post").value = currentPostContent.trim();
                 }
             } else {
                 if (command === "next") {
                     fetchNextPost();
-                    
-                    // **🔴 FIXED: Force Restart for Continuous "Next"**
-                    if (lastCommand === "next") {
-                        recognition.stop();
-                        setTimeout(() => recognition.start(), 500);
-                    }
                 } else if (command === "go back" || command === "previous") {
                     fetchPreviousPost();
                 } else if (command === "create post") {
                     startRecordingPost();
                 }
             }
-            lastCommand = command;
         }
 
         function startVoiceRecognition() {
@@ -173,13 +170,22 @@
 
             recognition = new webkitSpeechRecognition();
             recognition.continuous = true;
-            recognition.interimResults = true; // ✅ Enables real-time text appearance
+            recognition.interimResults = true;  // ✅ Enables real-time display of speech while recording
             recognition.lang = "en-US";
 
             recognition.onresult = function(event) {
-                let isFinal = event.results[event.results.length - 1].isFinal;
-                let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-                handleVoiceCommand(lastResult, isFinal);
+                let result = "";
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    result += event.results[i][0].transcript + " ";
+                }
+                result = result.trim().toLowerCase();
+
+                if (isRecordingPost) {
+                    document.getElementById("new-post").value = result;
+                    currentPostContent = result;
+                } else {
+                    handleVoiceCommand(result);
+                }
             };
 
             recognition.onerror = function(event) {
