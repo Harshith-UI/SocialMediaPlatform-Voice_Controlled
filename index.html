@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice-Powered Social Media</title>
+    <link rel="icon" type="image/png" href="favicon.ico"> <!-- ✅ Favicon Fix -->
     <style>
         .error { color: red; }
         .success { color: green; }
@@ -35,7 +36,6 @@
         let posts = [];
         let currentIndex = 0;
         let recognition;
-
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -57,13 +57,15 @@
         }
 
         function updatePostDisplay() {
-            document.getElementById("post-content").innerText = posts[currentIndex].content;
+            document.getElementById("post-content").innerText = posts[currentIndex]?.content || "No posts available!";
         }
 
         function fetchNextPost() {
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
                 updatePostDisplay();
+            } else {
+                showStatus("No more posts!", 'error');
             }
         }
 
@@ -71,6 +73,8 @@
             if (currentIndex > 0) {
                 currentIndex--;
                 updatePostDisplay();
+            } else {
+                showStatus("This is the first post!", 'error');
             }
         }
 
@@ -89,14 +93,14 @@
                 });
 
                 if (response.ok) {
-                    showStatus("Post stored successfully!");
+                    showStatus("✅ Post stored successfully!");
                     document.getElementById("new-post").value = "";
                     await fetchAllPosts();
                 } else {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
             } catch (error) {
-                showStatus("Error posting: " + error.message, 'error');
+                showStatus("❌ Error posting: " + error.message, 'error');
             }
         }
 
@@ -104,6 +108,9 @@
             const statusDiv = document.getElementById('status-message');
             statusDiv.textContent = message;
             statusDiv.className = 'status ' + type;
+            setTimeout(() => {
+                statusDiv.textContent = "";
+            }, 5000);
         }
 
         function startVoiceMode() {
