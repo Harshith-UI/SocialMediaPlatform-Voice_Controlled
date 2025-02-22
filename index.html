@@ -33,7 +33,8 @@
         let currentIndex = 0;
         let recognition;
         let isListening = true;
-        let lastCommand = ""; // ✅ Keeps track of the last command to prevent repetition issues
+        let lastCommand = "";
+        let recognitionActive = false; // ✅ Tracks if recognition is running
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -129,12 +130,18 @@
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 console.log("Recognized Speech:", lastResult);
 
-                // ✅ Trick: Restart recognition if "Next" is repeated
+                // ✅ Fix: Restart only if necessary (prevents duplicate start errors)
                 if (lastResult === "next") {
                     if (lastCommand === "next") {
-                        console.log("Forcing recognition reset to detect next properly...");
+                        console.log("Forcing recognition reset to detect 'next' properly...");
                         recognition.stop();
-                        setTimeout(() => recognition.start(), 500); // Restart it after 500ms
+                        recognitionActive = false;
+                        setTimeout(() => {
+                            if (!recognitionActive) {
+                                recognition.start();
+                                recognitionActive = true;
+                            }
+                        }, 500);
                     }
                     fetchNextPost();
                 } else if (lastResult === "go back" || lastResult === "previous") {
@@ -149,7 +156,7 @@
                     showStatus("Unrecognized command: " + lastResult, 'error');
                 }
 
-                lastCommand = lastResult; // ✅ Store the last command
+                lastCommand = lastResult;
             };
 
             recognition.onerror = function(event) {
@@ -160,17 +167,24 @@
             recognition.onend = function() {
                 if (isListening) {
                     console.log("Restarting recognition due to inactivity...");
-                    recognition.start();
+                    setTimeout(() => {
+                        if (!recognitionActive) {
+                            recognition.start();
+                            recognitionActive = true;
+                        }
+                    }, 500);
                 }
             };
 
             recognition.start();
+            recognitionActive = true; // ✅ Mark recognition as active
         }
 
         function stopVoiceMode() {
             isListening = false;
             if (recognition) {
                 recognition.stop();
+                recognitionActive = false; // ✅ Mark recognition as stopped
                 showStatus("⛔ Voice mode stopped.", 'error');
             }
         }
