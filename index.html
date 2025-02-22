@@ -39,44 +39,25 @@
         let currentIndex = 0;
         let transcribeSocket = null;
         let isRecording = false;
-        let reconnectAttempts = 0;
-        const MAX_RECONNECT_ATTEMPTS = 3;
-        
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
         const region = "us-east-1";
         const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a";
 
-        // Initialize AWS credentials
         async function initializeAWS() {
-            try {
-                AWS.config.region = region;
-                AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-                    IdentityPoolId: identityPoolId
-                });
-                await AWS.config.credentials.getPromise();
-                return true;
-            } catch (error) {
-                showStatus('Failed to initialize AWS credentials: ' + error.message, 'error');
-                return false;
-            }
+            AWS.config.region = region;
+            AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: identityPoolId });
+            await AWS.config.credentials.getPromise();
         }
 
         function showStatus(message, type = 'success') {
             const statusDiv = document.getElementById('status-message');
             statusDiv.textContent = message;
             statusDiv.className = 'status ' + type;
-            setTimeout(() => {
-                statusDiv.textContent = '';
-                statusDiv.className = 'status';
-            }, 5000);
         }
 
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
                 const result = await response.json();
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
 
@@ -94,8 +75,6 @@
 
         function updatePostDisplay() {
             document.getElementById("post-content").innerText = posts[currentIndex].content;
-            document.getElementById("prevButton").disabled = currentIndex <= 0;
-            document.getElementById("nextButton").disabled = currentIndex >= posts.length - 1;
         }
 
         function fetchNextPost() {
@@ -112,37 +91,8 @@
             }
         }
 
-        async function submitPost() {
-            const content = document.getElementById("new-post").value.trim();
-            if (!content) {
-                showStatus("Post cannot be empty!", 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch(apiUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ content })
-                });
-
-                if (response.ok) {
-                    showStatus("Post stored successfully!");
-                    document.getElementById("new-post").value = "";
-                    await fetchAllPosts();
-                } else {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-            } catch (error) {
-                showStatus("Error posting: " + error.message, 'error');
-            }
-        }
-
         async function getSignedTranscribeUrl() {
-            if (!await initializeAWS()) {
-                throw new Error("Failed to initialize AWS credentials");
-            }
-
+            await initializeAWS();
             const credentials = AWS.config.credentials;
             const endpoint = `transcribestreaming.${region}.amazonaws.com:8443`;
             const requestDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
@@ -158,113 +108,36 @@
             const kService = sign(kRegion, 'transcribe');
             const kSigning = sign(kService, 'aws4_request');
 
-            const canonicalQuerystring = [
-                'X-Amz-Algorithm=AWS4-HMAC-SHA256',
-                `X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId + '/' + credentialScope)}`,
-                `X-Amz-Date=${requestDate}`,
-                `X-Amz-Expires=300`,
-                'X-Amz-SignedHeaders=host',
-                `X-Amz-Security-Token=${encodeURIComponent(credentials.sessionToken)}`,
-                'language-code=en-US',
-                'media-encoding=pcm',
-                'sample-rate=16000'
-            ].sort().join('&');
+            const canonicalQuerystring = `X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId + '/' + credentialScope)}&X-Amz-Date=${requestDate}&X-Amz-Security-Token=${encodeURIComponent(credentials.sessionToken)}&language-code=en-US&media-encoding=pcm&sample-rate=16000`;
 
-            const canonicalRequest = [
-                'GET',
-                '/stream-transcription-websocket',
-                canonicalQuerystring,
-                'host:' + endpoint,
-                '',
-                'host',
-                'UNSIGNED-PAYLOAD'
-            ].join('\n');
-
-            const stringToSign = [
-                'AWS4-HMAC-SHA256',
-                requestDate,
-                credentialScope,
-                CryptoJS.SHA256(canonicalRequest)
-            ].join('\n');
-
-            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString(CryptoJS.enc.Hex);
+            const stringToSign = `AWS4-HMAC-SHA256\n${requestDate}\n${credentialScope}\n${CryptoJS.SHA256(canonicalQuerystring)}`;
+            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString();
 
             return `wss://${endpoint}/stream-transcription-websocket?${canonicalQuerystring}&X-Amz-Signature=${signature}`;
         }
 
         async function startVoiceMode() {
             try {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error("Your browser doesn't support voice input");
-                }
-
+                showStatus("Starting voice mode...");
                 const signedUrl = await getSignedTranscribeUrl();
                 transcribeSocket = new WebSocket(signedUrl);
-                
+
                 transcribeSocket.onopen = () => {
-                    showStatus("Voice mode activated!");
+                    showStatus("✅ Voice mode activated!");
                     document.getElementById("startVoice").disabled = true;
                     document.getElementById("stopVoice").disabled = false;
                     isRecording = true;
-                    reconnectAttempts = 0;
-                    startAudioStream();
-                };
-
-                transcribeSocket.onclose = (event) => {
-                    if (isRecording && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                        reconnectAttempts++;
-                        showStatus(`WebSocket disconnected. Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, 'error');
-                        setTimeout(startVoiceMode, 2000);
-                    } else {
-                        stopVoiceMode();
-                    }
                 };
 
                 transcribeSocket.onerror = (error) => {
-                    console.error("WebSocket Error:", error);
-                    showStatus("WebSocket error occurred", 'error');
+                    console.error("⚠️ WebSocket Error:", error);
+                    showStatus("❌ WebSocket error!", 'error');
                 };
 
                 transcribeSocket.onmessage = handleTranscribeMessage;
-
             } catch (error) {
                 showStatus("Error starting voice mode: " + error.message, 'error');
-                stopVoiceMode();
             }
-        }
-
-        async function startAudioStream() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const audioContext = new AudioContext();
-                const source = audioContext.createMediaStreamSource(stream);
-                const processor = audioContext.createScriptProcessor(16384, 1, 1);
-
-                source.connect(processor);
-                processor.connect(audioContext.destination);
-
-                processor.onaudioprocess = (e) => {
-                    if (isRecording && transcribeSocket && transcribeSocket.readyState === WebSocket.OPEN) {
-                        const audioData = e.inputBuffer.getChannelData(0);
-                        const pcmData = convertFloat32ToInt16(audioData);
-                        transcribeSocket.send(pcmData.buffer);
-                    }
-                };
-
-                return stream;
-            } catch (error) {
-                showStatus("Error accessing microphone: " + error.message, 'error');
-                throw error;
-            }
-        }
-
-        function convertFloat32ToInt16(float32Array) {
-            const int16Array = new Int16Array(float32Array.length);
-            for (let i = 0; i < float32Array.length; i++) {
-                const s = Math.max(-1, Math.min(1, float32Array[i]));
-                int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-            }
-            return int16Array;
         }
 
         function handleTranscribeMessage(event) {
@@ -272,10 +145,7 @@
                 event.data.text().then((text) => {
                     try {
                         const message = JSON.parse(text);
-                        if (message.Results && message.Results[0] && 
-                            message.Results[0].Alternatives && 
-                            message.Results[0].Alternatives[0]) {
-                            
+                        if (message.Results && message.Results[0] && message.Results[0].Alternatives[0]) {
                             const transcript = message.Results[0].Alternatives[0].Transcript.trim().toLowerCase();
                             console.log("Recognized Speech:", transcript);
 
@@ -292,7 +162,7 @@
                             }
                         }
                     } catch (error) {
-                        console.error("Error parsing Transcribe response:", error);
+                        console.error("🚨 Invalid JSON from Transcribe:", event.data);
                     }
                 });
             }
@@ -300,22 +170,11 @@
 
         function stopVoiceMode() {
             isRecording = false;
-            if (transcribeSocket) {
-                transcribeSocket.close();
-                transcribeSocket = null;
-            }
-            document.getElementById("startVoice").disabled = false;
-            document.getElementById("stopVoice").disabled = true;
-            showStatus("Voice mode stopped");
+            if (transcribeSocket) transcribeSocket.close();
+            showStatus("⛔ Voice mode stopped");
         }
 
-        // Initialize the app
         fetchAllPosts();
-
-        // Handle page unload
-        window.addEventListener('beforeunload', () => {
-            stopVoiceMode();
-        });
     </script>
 </body>
 </html>
