@@ -43,7 +43,7 @@
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
 
                 if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
-                    // Sort posts by timestamp in descending order (newest first)
+                    // ✅ Sort posts by timestamp in descending order (latest first)
                     posts = data.posts.sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp));
                     currentIndex = 0;
                     updatePostDisplay();
@@ -58,9 +58,7 @@
         function updatePostDisplay() {
             if (posts[currentIndex]) {
                 const post = posts[currentIndex];
-                const timestamp = new Date(parseInt(post.timestamp));
-                document.getElementById("post-content").innerText = 
-                    `${post.content}\n\nPosted: ${timestamp.toLocaleString()}`;
+                document.getElementById("post-content").innerText = post.content; // ✅ Only show post content
             } else {
                 document.getElementById("post-content").innerText = "No posts available!";
             }
