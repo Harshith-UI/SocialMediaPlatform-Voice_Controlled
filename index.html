@@ -32,7 +32,8 @@
         let posts = [];
         let currentIndex = 0;
         let recognition;
-        let isListening = true; // ✅ Keeps voice mode running always
+        let isListening = true;
+        let lastCommand = ""; // ✅ Keeps track of the last command to prevent repetition issues
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -117,7 +118,7 @@
             }
 
             showStatus("🎙️ Always-On Voice Mode Activated!", 'success');
-            isListening = true; // ✅ Keeps voice mode running
+            isListening = true;
 
             recognition = new webkitSpeechRecognition();
             recognition.continuous = true;
@@ -128,9 +129,15 @@
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 console.log("Recognized Speech:", lastResult);
 
+                // ✅ Trick: Restart recognition if "Next" is repeated
                 if (lastResult === "next") {
+                    if (lastCommand === "next") {
+                        console.log("Forcing recognition reset to detect next properly...");
+                        recognition.stop();
+                        setTimeout(() => recognition.start(), 500); // Restart it after 500ms
+                    }
                     fetchNextPost();
-                } else if (lastResult === "go back") {
+                } else if (lastResult === "go back" || lastResult === "previous") {
                     fetchPreviousPost();
                 } else if (lastResult.startsWith("create post")) {
                     const postContent = lastResult.replace("create post", "").trim();
@@ -141,6 +148,8 @@
                 } else {
                     showStatus("Unrecognized command: " + lastResult, 'error');
                 }
+
+                lastCommand = lastResult; // ✅ Store the last command
             };
 
             recognition.onerror = function(event) {
@@ -151,7 +160,7 @@
             recognition.onend = function() {
                 if (isListening) {
                     console.log("Restarting recognition due to inactivity...");
-                    recognition.start(); // ✅ Restart speech recognition automatically
+                    recognition.start();
                 }
             };
 
@@ -159,7 +168,7 @@
         }
 
         function stopVoiceMode() {
-            isListening = false; // ✅ Stops auto-restarting
+            isListening = false;
             if (recognition) {
                 recognition.stop();
                 showStatus("⛔ Voice mode stopped.", 'error');
