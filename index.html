@@ -7,38 +7,42 @@
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
-
+    
     <div id="post-content">Loading...</div>
-
-    <button onclick="fetchPreviousPost()">Previous Post</button>
-    <button onclick="fetchNextPost()">Next Post</button>
+    
+    <div>
+        <button onclick="fetchPreviousPost()">Previous Post</button>
+        <button onclick="fetchNextPost()">Next Post</button>
+    </div>
 
     <h2>Create a Post</h2>
     <textarea id="new-post" placeholder="Write something..."></textarea>
     <button onclick="submitPost()">Post</button>
 
     <h2>Voice Assistant</h2>
-    <button onclick="startVoiceMode()">🎤 Start Voice Mode</button>
+    <button onclick="startVoiceMode()">🎙️ Start Voice Mode</button>
     <button onclick="stopVoiceMode()">⛔ Stop Voice Mode</button>
+
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.931.0.min.js"></script>
 
     <script>
         let posts = [];
         let currentIndex = 0;
-        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts"; 
-        const region = "us-east-1";
-        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a"; 
+        let transcribeSocket = null;
 
+        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
+        const region = "us-east-1"; // AWS Region
+        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a"; // Replace with your Cognito Identity Pool ID
+
+        // Fetch all posts from API
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
-                const data = await response.json();
-                
-                if (typeof data.body === 'string') {
-                    data.body = JSON.parse(data.body);
-                }
+                const result = await response.json();
+                let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
 
-                if (data.body.posts && data.body.posts.length > 0) {
-                    posts = data.body.posts.reverse();
+                if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
+                    posts = data.posts.reverse();
                     currentIndex = 0;
                     document.getElementById("post-content").innerText = posts[currentIndex].content;
                 } else {
@@ -82,75 +86,75 @@
                     body: JSON.stringify({ content })
                 });
 
-                const result = await response.json();
-                alert("Post stored successfully!");
-                document.getElementById("new-post").value = "";
-                await fetchAllPosts();
+                if (response.ok) {
+                    alert("Post stored successfully!");
+                    document.getElementById("new-post").value = "";
+                    fetchAllPosts();
+                } else {
+                    throw new Error("Failed to store post.");
+                }
             } catch (error) {
                 console.error("Error posting:", error);
-                alert("Error posting!");
+                alert("Error posting: " + error.message);
             }
         }
 
-        // AWS Transcribe Voice Integration
-        let transcribeSocket;
-        let audioStream;
-        let mediaRecorder;
-        let audioChunks = [];
+        // Generate a properly signed Transcribe WebSocket URL
+        async function getSignedTranscribeUrl() {
+            AWS.config.region = region;
+            AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: identityPoolId });
 
-        async function getCredentials() {
-            const response = await fetch(`https://cognito-identity.${region}.amazonaws.com/`, {
-                method: "POST",
-                headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityService.GetId" },
-                body: JSON.stringify({ IdentityPoolId: identityPoolId })
-            });
-            const { IdentityId } = await response.json();
+            await AWS.config.credentials.getPromise(); // Ensure credentials are loaded
 
-            const credsResponse = await fetch(`https://cognito-identity.${region}.amazonaws.com/`, {
-                method: "POST",
-                headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity" },
-                body: JSON.stringify({ IdentityId })
-            });
+            const credentials = AWS.config.credentials;
+            const accessKeyId = credentials.accessKeyId;
+            const secretAccessKey = credentials.secretAccessKey;
+            const sessionToken = credentials.sessionToken;
 
-            const credsData = await credsResponse.json();
-            return credsData.Credentials;
+            const service = "transcribe";
+            const requestDate = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+            const credentialScope = `${requestDate}/${region}/${service}/aws4_request`;
+
+            // Generate X-Amz-Signature using AWS SDK
+            const signer = new AWS.Signers.V4(new AWS.HttpRequest(new AWS.Endpoint(`transcribestreaming.${region}.amazonaws.com`), region), service);
+            signer.addAuthorization(credentials, new Date());
+
+            return `${signer.request.endpoint.href}stream-transcription-websocket?media-encoding=pcm&sample-rate=16000&language-code=en-US&X-Amz-Security-Token=${sessionToken}&X-Amz-Credential=${accessKeyId}/${credentialScope}&X-Amz-Signature=${signer.request.headers.Authorization}`;
         }
 
+        // Start Voice Mode (Amazon Transcribe Streaming)
         async function startVoiceMode() {
-            const creds = await getCredentials();
-            const transcribeURL = `wss://transcribestreaming.${region}.amazonaws.com:8443/stream-transcription-websocket?language-code=en-US&media-encoding=pcm&sample-rate=16000&X-Amz-Security-Token=${encodeURIComponent(creds.SessionToken)}&X-Amz-Date=${new Date().toISOString().replace(/[:\-]|\.\d{3}/g, '')}&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(`${creds.AccessKeyId}/${new Date().toISOString().split('T')[0].replace(/-/g, '')}/${region}/transcribe/aws4_request`)}&X-Amz-SignedHeaders=host&X-Amz-Signature=`;
+            alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
 
-            transcribeSocket = new WebSocket(transcribeURL);
-            transcribeSocket.onopen = () => {
-                console.log("Transcribe WebSocket connected.");
-                alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
-                startAudioStream();
-            };
+            const signedUrl = await getSignedTranscribeUrl();
+            console.log("Signed Transcribe URL:", signedUrl);
+
+            transcribeSocket = new WebSocket(signedUrl);
+
+            transcribeSocket.onopen = () => console.log("Transcribe WebSocket connected.");
+            transcribeSocket.onclose = () => console.log("Transcribe WebSocket closed.");
+            transcribeSocket.onerror = (error) => console.error("Transcribe WebSocket Error:", error);
 
             transcribeSocket.onmessage = async (event) => {
                 if (event.data instanceof Blob) {
                     event.data.text().then((text) => {
                         try {
-                            if (text.startsWith("{")) {
-                                const message = JSON.parse(text);
-                                if (message.results && message.results.length > 0) {
-                                    const transcript = message.results[0].alternatives[0].transcript.trim().toLowerCase();
-                                    console.log("Received transcript:", transcript);
+                            const message = JSON.parse(text);
+                            if (message.results && message.results.length > 0) {
+                                const transcript = message.results[0].alternatives[0].transcript.trim().toLowerCase();
+                                console.log("Received transcript:", transcript);
 
-                                    if (transcript === "next post") {
-                                        fetchNextPost();
-                                    } else if (transcript === "previous post") {
-                                        fetchPreviousPost();
-                                    } else if (transcript.startsWith("create post")) {
-                                        const postContent = transcript.replace("create post", "").trim();
-                                        if (postContent) {
-                                            document.getElementById("new-post").value = postContent;
-                                            submitPost();
-                                        }
+                                if (transcript === "next post") {
+                                    fetchNextPost();
+                                } else if (transcript === "previous post") {
+                                    fetchPreviousPost();
+                                } else if (transcript.startsWith("create post")) {
+                                    const postContent = transcript.replace("create post", "").trim();
+                                    if (postContent) {
+                                        document.getElementById("new-post").value = postContent;
+                                        submitPost();
                                     }
                                 }
-                            } else {
-                                console.warn("Received non-JSON data from Transcribe:", text);
                             }
                         } catch (error) {
                             console.error("Error parsing Transcribe response:", error);
@@ -158,8 +162,6 @@
                     });
                 }
             };
-
-            transcribeSocket.onclose = () => console.log("Transcribe WebSocket closed.");
         }
 
         function stopVoiceMode() {
@@ -170,17 +172,7 @@
             alert("Voice mode stopped.");
         }
 
-        async function startAudioStream() {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    transcribeSocket.send(event.data);
-                }
-            };
-            mediaRecorder.start(500);
-        }
-
+        // Initial load of posts
         fetchAllPosts();
     </script>
 </body>
