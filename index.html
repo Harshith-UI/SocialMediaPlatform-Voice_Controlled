@@ -130,7 +130,7 @@
 
                 if (lastResult === "next") {
                     fetchNextPost();
-                } else if (lastResult === "Go back") {
+                } else if (lastResult === "go back") {
                     fetchPreviousPost();
                 } else if (lastResult.startsWith("create post")) {
                     const postContent = lastResult.replace("create post", "").trim();
