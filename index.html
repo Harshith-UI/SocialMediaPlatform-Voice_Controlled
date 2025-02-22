@@ -33,7 +33,7 @@
         let currentIndex = 0;
         let recognition;
         let isListening = true;
-        let lastCommand = ""; // ✅ Keeps track of the last command to prevent repetition issues
+        let lastCommand = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -43,7 +43,8 @@
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
 
                 if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
-                    posts = data.posts.reverse();
+                    // Sort posts by timestamp in descending order (newest first)
+                    posts = data.posts.sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp));
                     currentIndex = 0;
                     updatePostDisplay();
                 } else {
@@ -55,7 +56,14 @@
         }
 
         function updatePostDisplay() {
-            document.getElementById("post-content").innerText = posts[currentIndex]?.content || "No posts available!";
+            if (posts[currentIndex]) {
+                const post = posts[currentIndex];
+                const timestamp = new Date(parseInt(post.timestamp));
+                document.getElementById("post-content").innerText = 
+                    `${post.content}\n\nPosted: ${timestamp.toLocaleString()}`;
+            } else {
+                document.getElementById("post-content").innerText = "No posts available!";
+            }
         }
 
         function fetchNextPost() {
@@ -129,12 +137,10 @@
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 console.log("Recognized Speech:", lastResult);
 
-                // ✅ Trick: Restart recognition if "Next" is repeated
                 if (lastResult === "next") {
                     if (lastCommand === "next") {
-                        console.log("Forcing recognition reset to detect next properly...");
                         recognition.stop();
-                        setTimeout(() => recognition.start(), 500); // Restart it after 500ms
+                        setTimeout(() => recognition.start(), 500);
                     }
                     fetchNextPost();
                 } else if (lastResult === "go back" || lastResult === "previous") {
@@ -149,7 +155,7 @@
                     showStatus("Unrecognized command: " + lastResult, 'error');
                 }
 
-                lastCommand = lastResult; // ✅ Store the last command
+                lastCommand = lastResult;
             };
 
             recognition.onerror = function(event) {
@@ -175,7 +181,6 @@
             }
         }
 
-        // ✅ Automatically start voice mode on page load
         window.onload = function() {
             startAlwaysOnVoiceMode();
         };
