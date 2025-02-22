@@ -6,17 +6,24 @@
     <title>Voice-Powered Social Media</title>
     <link rel="icon" type="image/png" href="favicon.ico">
     <style>
-        .error { display: none; } /* ✅ Hides error messages */
+        .error { display: none; }
         .success { color: green; }
         .status { margin: 10px 0; }
         button { margin: 5px; padding: 8px; }
         textarea { width: 100%; min-height: 100px; margin: 10px 0; }
+        .recording { 
+            background-color: #ffecec;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
     </style>
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
     
     <div id="status-message" class="status"></div>
+    <div id="recording-status" class="recording">Recording post... Say "stop writing" when finished.</div>
     <div id="post-content">Loading...</div>
     
     <div>
@@ -34,8 +41,9 @@
         let recognition;
         let isListening = true;
         let lastCommand = "";
-        let isWritingPost = false; // ✅ Tracks if user is writing a post
-        let apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
+        let isRecordingPost = false;
+        let currentPostContent = "";
+        const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
             try {
@@ -97,6 +105,23 @@
             }
         }
 
+        function startRecordingPost() {
+            isRecordingPost = true;
+            currentPostContent = "";
+            document.getElementById("recording-status").style.display = "block";
+            document.getElementById("new-post").value = "";
+        }
+
+        function stopRecordingPost() {
+            isRecordingPost = false;
+            document.getElementById("recording-status").style.display = "none";
+            if (currentPostContent.trim()) {
+                document.getElementById("new-post").value = currentPostContent.trim();
+                submitPost();
+            }
+            currentPostContent = "";
+        }
+
         function startAlwaysOnVoiceMode() {
             if (!("webkitSpeechRecognition" in window)) return;
 
@@ -110,23 +135,21 @@
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 console.log("Recognized Speech:", lastResult);
 
-                if (isWritingPost) {
+                if (isRecordingPost) {
                     if (lastResult === "stop writing") {
-                        isWritingPost = false;
-                        submitPost(); // ✅ Finalizes post
+                        stopRecordingPost();
                     } else {
-                        document.getElementById("new-post").value += " " + lastResult;
+                        currentPostContent += " " + lastResult;
+                        document.getElementById("new-post").value = currentPostContent.trim();
                     }
-                    return;
-                }
-
-                if (lastResult === "next") {
-                    fetchNextPost();
-                } else if (lastResult === "go back" || lastResult === "previous") {
-                    fetchPreviousPost();
-                } else if (lastResult === "create post") {
-                    isWritingPost = true; // ✅ Starts post writing
-                    document.getElementById("new-post").value = ""; // Clear previous text
+                } else {
+                    if (lastResult === "next") {
+                        fetchNextPost();
+                    } else if (lastResult === "go back" || lastResult === "previous") {
+                        fetchPreviousPost();
+                    } else if (lastResult === "create post") {
+                        startRecordingPost();
+                    }
                 }
 
                 lastCommand = lastResult;
@@ -134,6 +157,9 @@
 
             recognition.onerror = function(event) {
                 console.error("Speech Recognition Error:", event);
+                if (isRecordingPost) {
+                    stopRecordingPost();
+                }
             };
 
             recognition.onend = function() {
@@ -150,6 +176,9 @@
             isListening = false;
             if (recognition) {
                 recognition.stop();
+            }
+            if (isRecordingPost) {
+                stopRecordingPost();
             }
         }
 
