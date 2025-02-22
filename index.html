@@ -6,7 +6,7 @@
     <title>Voice-Powered Social Media</title>
     <link rel="icon" type="image/png" href="favicon.ico">
     <style>
-        .error { color: red; }
+        .error { display: none; } /* ✅ Hides error messages */
         .success { color: green; }
         .status { margin: 10px 0; }
         button { margin: 5px; padding: 8px; }
@@ -43,7 +43,6 @@
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
 
                 if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
-                    // ✅ Sort posts by timestamp in descending order (latest first)
                     posts = data.posts.sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp));
                     currentIndex = 0;
                     updatePostDisplay();
@@ -51,14 +50,13 @@
                     document.getElementById("post-content").innerText = "No posts available!";
                 }
             } catch (error) {
-                showStatus("Error fetching posts: " + error.message, 'error');
+                console.error("Error fetching posts:", error);
             }
         }
 
         function updatePostDisplay() {
             if (posts[currentIndex]) {
-                const post = posts[currentIndex];
-                document.getElementById("post-content").innerText = post.content; // ✅ Only show post content
+                document.getElementById("post-content").innerText = posts[currentIndex].content;
             } else {
                 document.getElementById("post-content").innerText = "No posts available!";
             }
@@ -68,8 +66,6 @@
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
                 updatePostDisplay();
-            } else {
-                showStatus("No more posts!", 'error');
             }
         }
 
@@ -77,17 +73,12 @@
             if (currentIndex > 0) {
                 currentIndex--;
                 updatePostDisplay();
-            } else {
-                showStatus("This is the first post!", 'error');
             }
         }
 
         async function submitPost() {
             const content = document.getElementById("new-post").value.trim();
-            if (!content) {
-                showStatus("Post cannot be empty!", 'error');
-                return;
-            }
+            if (!content) return;
 
             try {
                 const response = await fetch(apiUrl, {
@@ -97,35 +88,18 @@
                 });
 
                 if (response.ok) {
-                    showStatus("✅ Post stored successfully!");
                     document.getElementById("new-post").value = "";
                     await fetchAllPosts();
-                } else {
-                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
             } catch (error) {
-                showStatus("❌ Error posting: " + error.message, 'error');
+                console.error("Error posting:", error);
             }
-        }
-
-        function showStatus(message, type = 'success') {
-            const statusDiv = document.getElementById('status-message');
-            statusDiv.textContent = message;
-            statusDiv.className = 'status ' + type;
-            setTimeout(() => {
-                statusDiv.textContent = "";
-            }, 5000);
         }
 
         function startAlwaysOnVoiceMode() {
-            if (!("webkitSpeechRecognition" in window)) {
-                showStatus("❌ Your browser does not support speech recognition.", 'error');
-                return;
-            }
+            if (!("webkitSpeechRecognition" in window)) return;
 
-            showStatus("🎙️ Always-On Voice Mode Activated!", 'success');
             isListening = true;
-
             recognition = new webkitSpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = false;
@@ -149,8 +123,6 @@
                         document.getElementById("new-post").value = postContent;
                         submitPost();
                     }
-                } else {
-                    showStatus("Unrecognized command: " + lastResult, 'error');
                 }
 
                 lastCommand = lastResult;
@@ -158,12 +130,11 @@
 
             recognition.onerror = function(event) {
                 console.error("Speech Recognition Error:", event);
-                showStatus("❌ Voice recognition error!", 'error');
             };
 
             recognition.onend = function() {
                 if (isListening) {
-                    console.log("Restarting recognition due to inactivity...");
+                    console.log("Restarting recognition...");
                     recognition.start();
                 }
             };
@@ -175,7 +146,6 @@
             isListening = false;
             if (recognition) {
                 recognition.stop();
-                showStatus("⛔ Voice mode stopped.", 'error');
             }
         }
 
