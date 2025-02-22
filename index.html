@@ -10,6 +10,7 @@
         .status { margin: 10px 0; }
         button { margin: 5px; padding: 8px; }
         textarea { width: 100%; min-height: 100px; margin: 10px 0; }
+        #post-content { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
     </style>
 </head>
 <body>
@@ -39,8 +40,9 @@
         let currentIndex = 0;
         let transcribeSocket = null;
         let isRecording = false;
-        let reconnectAttempts = 0;
-        const MAX_RECONNECT_ATTEMPTS = 3;
+        let mediaStream = null;
+        let audioContext = null;
+        let workletNode = null;
         
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
         const region = "us-east-1";
@@ -149,15 +151,6 @@
             const dateStamp = requestDate.slice(0, 8);
             const credentialScope = `${dateStamp}/${region}/transcribe/aws4_request`;
 
-            function sign(key, msg) {
-                return CryptoJS.HmacSHA256(msg, key);
-            }
-
-            const kDate = sign(`AWS4${credentials.secretAccessKey}`, dateStamp);
-            const kRegion = sign(kDate, region);
-            const kService = sign(kRegion, 'transcribe');
-            const kSigning = sign(kService, 'aws4_request');
-
             const canonicalQuerystring = [
                 'X-Amz-Algorithm=AWS4-HMAC-SHA256',
                 `X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId + '/' + credentialScope)}`,
@@ -170,90 +163,86 @@
                 'sample-rate=16000'
             ].sort().join('&');
 
-            const canonicalRequest = [
-                'GET',
-                '/stream-transcription-websocket',
-                canonicalQuerystring,
-                'host:' + endpoint,
-                '',
-                'host',
-                'UNSIGNED-PAYLOAD'
-            ].join('\n');
-
             const stringToSign = [
                 'AWS4-HMAC-SHA256',
                 requestDate,
                 credentialScope,
-                CryptoJS.SHA256(canonicalRequest)
+                CryptoJS.SHA256(canonicalQuerystring)
             ].join('\n');
 
-            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString(CryptoJS.enc.Hex);
+            const kDate = CryptoJS.HmacSHA256(dateStamp, 'AWS4' + credentials.secretAccessKey);
+            const kRegion = CryptoJS.HmacSHA256(region, kDate);
+            const kService = CryptoJS.HmacSHA256('transcribe', kRegion);
+            const kSigning = CryptoJS.HmacSHA256('aws4_request', kService);
+            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString();
 
             return `wss://${endpoint}/stream-transcription-websocket?${canonicalQuerystring}&X-Amz-Signature=${signature}`;
         }
 
-        async function startVoiceMode() {
-            try {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error("Your browser doesn't support voice input");
+        // Audio Worklet processor code
+        const workletCode = `
+            class AudioProcessor extends AudioWorkletProcessor {
+                constructor() {
+                    super();
+                    this.bufferSize = 16384;
+                    this.buffer = new Float32Array(this.bufferSize);
+                    this.bytesWritten = 0;
                 }
-
-                const signedUrl = await getSignedTranscribeUrl();
-                transcribeSocket = new WebSocket(signedUrl);
                 
-                transcribeSocket.onopen = () => {
-                    showStatus("Voice mode activated!");
-                    document.getElementById("startVoice").disabled = true;
-                    document.getElementById("stopVoice").disabled = false;
-                    isRecording = true;
-                    reconnectAttempts = 0;
-                    startAudioStream();
-                };
+                process(inputs) {
+                    const input = inputs[0][0];
+                    if (!input) return true;
 
-                transcribeSocket.onclose = (event) => {
-                    if (isRecording && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                        reconnectAttempts++;
-                        showStatus(`WebSocket disconnected. Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, 'error');
-                        setTimeout(startVoiceMode, 2000);
-                    } else {
-                        stopVoiceMode();
+                    // Add incoming data to buffer
+                    for (let i = 0; i < input.length; i++) {
+                        if (this.bytesWritten < this.bufferSize) {
+                            this.buffer[this.bytesWritten] = input[i];
+                            this.bytesWritten++;
+                        }
                     }
-                };
 
-                transcribeSocket.onerror = (error) => {
-                    console.error("WebSocket Error:", error);
-                    showStatus("WebSocket error occurred", 'error');
-                };
+                    // If buffer is full, send it
+                    if (this.bytesWritten >= this.bufferSize) {
+                        this.port.postMessage({ audioData: this.buffer });
+                        this.buffer = new Float32Array(this.bufferSize);
+                        this.bytesWritten = 0;
+                    }
 
-                transcribeSocket.onmessage = handleTranscribeMessage;
-
-            } catch (error) {
-                showStatus("Error starting voice mode: " + error.message, 'error');
-                stopVoiceMode();
+                    return true;
+                }
             }
-        }
+            registerProcessor('audio-processor', AudioProcessor);
+        `;
 
         async function startAudioStream() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const audioContext = new AudioContext();
-                const source = audioContext.createMediaStreamSource(stream);
-                const processor = audioContext.createScriptProcessor(16384, 1, 1);
+                // Create Audio Context and Audio Worklet
+                audioContext = new AudioContext();
+                const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
+                const workletUrl = URL.createObjectURL(workletBlob);
+                await audioContext.audioWorklet.addModule(workletUrl);
+                URL.revokeObjectURL(workletUrl);
 
-                source.connect(processor);
-                processor.connect(audioContext.destination);
+                // Get media stream
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
 
-                processor.onaudioprocess = (e) => {
+                // Handle audio data
+                workletNode.port.onmessage = (e) => {
                     if (isRecording && transcribeSocket && transcribeSocket.readyState === WebSocket.OPEN) {
-                        const audioData = e.inputBuffer.getChannelData(0);
+                        const audioData = e.data.audioData;
                         const pcmData = convertFloat32ToInt16(audioData);
                         transcribeSocket.send(pcmData.buffer);
                     }
                 };
 
-                return stream;
+                // Connect nodes
+                source.connect(workletNode);
+                workletNode.connect(audioContext.destination);
+
             } catch (error) {
-                showStatus("Error accessing microphone: " + error.message, 'error');
+                showStatus("Error setting up audio: " + error.message, 'error');
                 throw error;
             }
         }
@@ -267,43 +256,95 @@
             return int16Array;
         }
 
-        function handleTranscribeMessage(event) {
-            if (event.data instanceof Blob) {
-                event.data.text().then((text) => {
-                    try {
-                        const message = JSON.parse(text);
-                        if (message.Results && message.Results[0] && 
-                            message.Results[0].Alternatives && 
-                            message.Results[0].Alternatives[0]) {
-                            
-                            const transcript = message.Results[0].Alternatives[0].Transcript.trim().toLowerCase();
-                            console.log("Recognized Speech:", transcript);
+        async function startVoiceMode() {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("Your browser doesn't support voice input");
+                }
 
-                            if (transcript === "next post") {
-                                fetchNextPost();
-                            } else if (transcript === "previous post") {
-                                fetchPreviousPost();
-                            } else if (transcript.startsWith("create post")) {
-                                const postContent = transcript.replace("create post", "").trim();
-                                if (postContent) {
-                                    document.getElementById("new-post").value = postContent;
-                                    submitPost();
+                const signedUrl = await getSignedTranscribeUrl();
+                transcribeSocket = new WebSocket(signedUrl);
+                
+                transcribeSocket.onopen = async () => {
+                    showStatus("Voice mode activated!");
+                    document.getElementById("startVoice").disabled = true;
+                    document.getElementById("stopVoice").disabled = false;
+                    isRecording = true;
+                    await startAudioStream();
+                };
+
+                transcribeSocket.onclose = () => {
+                    stopVoiceMode();
+                };
+
+                transcribeSocket.onerror = (error) => {
+                    console.error("WebSocket Error:", error);
+                    showStatus("WebSocket error occurred", 'error');
+                };
+
+                transcribeSocket.onmessage = (event) => {
+                    if (event.data instanceof Blob) {
+                        event.data.text().then((text) => {
+                            try {
+                                // Handle partial results
+                                const message = JSON.parse(text);
+                                if (message.Transcript) {
+                                    const transcript = message.Transcript.trim().toLowerCase();
+                                    handleTranscript(transcript);
                                 }
+                            } catch (error) {
+                                // Ignore parsing errors for partial results
+                                console.debug("Partial result parsing error:", error);
                             }
-                        }
-                    } catch (error) {
-                        console.error("Error parsing Transcribe response:", error);
+                        });
                     }
-                });
+                };
+
+            } catch (error) {
+                showStatus("Error starting voice mode: " + error.message, 'error');
+                stopVoiceMode();
+            }
+        }
+
+        function handleTranscript(transcript) {
+            console.log("Recognized Speech:", transcript);
+            
+            if (transcript === "next post") {
+                fetchNextPost();
+            } else if (transcript === "previous post") {
+                fetchPreviousPost();
+            } else if (transcript.startsWith("create post")) {
+                const postContent = transcript.replace("create post", "").trim();
+                if (postContent) {
+                    document.getElementById("new-post").value = postContent;
+                    submitPost();
+                }
             }
         }
 
         function stopVoiceMode() {
             isRecording = false;
+            
             if (transcribeSocket) {
                 transcribeSocket.close();
                 transcribeSocket = null;
             }
+
+            if (workletNode) {
+                workletNode.disconnect();
+                workletNode = null;
+            }
+
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
             document.getElementById("startVoice").disabled = false;
             document.getElementById("stopVoice").disabled = true;
             showStatus("Voice mode stopped");
