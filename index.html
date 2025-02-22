@@ -128,9 +128,9 @@
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 console.log("Recognized Speech:", lastResult);
 
-                if (lastResult === "next post") {
+                if (lastResult === "next") { // ✅ Changed "next post" to "next"
                     fetchNextPost();
-                } else if (lastResult === "previous post") {
+                } else if (lastResult === "previous") { // ✅ Changed "previous post" to "previous"
                     fetchPreviousPost();
                 } else if (lastResult.startsWith("create post")) {
                     const postContent = lastResult.replace("create post", "").trim();
