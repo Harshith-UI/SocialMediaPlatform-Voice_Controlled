@@ -47,7 +47,7 @@
         let isListening = false;
         let isRecordingPost = false;
         let currentPostContent = "";
-        let lastCommandTime = 0;
+        let lastCommand = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -84,20 +84,14 @@
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
                 updatePostDisplay();
-                return true;
             }
-            document.getElementById("status-message").innerText = "You've reached the last post!";
-            return false;
         }
 
         function fetchPreviousPost() {
             if (currentIndex > 0) {
                 currentIndex--;
                 updatePostDisplay();
-                return true;
             }
-            document.getElementById("status-message").innerText = "You're at the first post!";
-            return false;
         }
 
         async function submitPost() {
@@ -127,7 +121,6 @@
             currentPostContent = "";
             document.getElementById("recording-status").style.display = "block";
             document.getElementById("new-post").value = "";
-            document.getElementById("status-message").innerText = "Recording new post...";
         }
 
         function stopRecordingPost() {
@@ -138,20 +131,10 @@
                 submitPost();
             }
             currentPostContent = "";
-            document.getElementById("status-message").innerText = "Recording stopped.";
         }
 
         function handleVoiceCommand(command) {
-            const now = Date.now();
-            const timeSinceLastCommand = now - lastCommandTime;
-            
-            // Add a small cooldown period (300ms) between commands to prevent duplicates
-            if (timeSinceLastCommand < 300) {
-                return;
-            }
-
-            lastCommandTime = now;
-            console.log("Processing command:", command);
+            console.log("Recognized Speech:", command);
 
             if (isRecordingPost) {
                 if (command === "stop writing") {
@@ -161,19 +144,21 @@
                     document.getElementById("new-post").value = currentPostContent.trim();
                 }
             } else {
-                switch (command) {
-                    case "next":
-                        fetchNextPost();
-                        break;
-                    case "go back":
-                    case "previous":
-                        fetchPreviousPost();
-                        break;
-                    case "create post":
-                        startRecordingPost();
-                        break;
+                if (command === "next") {
+                    fetchNextPost();
+                    
+                    // **🔴 FIXED: Force Restart for Continuous "Next"**
+                    if (lastCommand === "next") {
+                        recognition.stop();
+                        setTimeout(() => recognition.start(), 500);
+                    }
+                } else if (command === "go back" || command === "previous") {
+                    fetchPreviousPost();
+                } else if (command === "create post") {
+                    startRecordingPost();
                 }
             }
+            lastCommand = command;
         }
 
         function startVoiceRecognition() {
@@ -195,8 +180,6 @@
 
             recognition.onerror = function(event) {
                 console.error("Speech Recognition Error:", event);
-                document.getElementById("status-message").innerText = 
-                    "Voice recognition error. Restarting...";
             };
 
             recognition.onend = function() {
@@ -205,7 +188,6 @@
                         if (!isListening) return;
                         try {
                             recognition.start();
-                            console.log("Recognition restarted");
                         } catch (e) {
                             console.error("Error restarting recognition:", e);
                         }
