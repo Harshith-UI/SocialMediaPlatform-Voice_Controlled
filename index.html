@@ -31,29 +31,12 @@
     <button id="startVoice" onclick="startVoiceMode()">🎙️ Start Voice Mode</button>
     <button id="stopVoice" onclick="stopVoiceMode()" disabled>⛔ Stop Voice Mode</button>
 
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.931.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-
     <script>
         let posts = [];
         let currentIndex = 0;
-        let transcribeSocket = null;
-        let isRecording = false;
+        let recognition;
+
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
-        const region = "us-east-1";
-        const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a";
-
-        async function initializeAWS() {
-            AWS.config.region = region;
-            AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: identityPoolId });
-            await AWS.config.credentials.getPromise();
-        }
-
-        function showStatus(message, type = 'success') {
-            const statusDiv = document.getElementById('status-message');
-            statusDiv.textContent = message;
-            statusDiv.className = 'status ' + type;
-        }
 
         async function fetchAllPosts() {
             try {
@@ -91,80 +74,93 @@
             }
         }
 
-        async function startVoiceMode() {
-            try {
-                showStatus("Requesting microphone permission...");
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                stream.getTracks().forEach(track => track.stop()); // Release mic after checking
-
-                showStatus("Starting voice mode...");
-                const signedUrl = await getSignedTranscribeUrl();
-                transcribeSocket = new WebSocket(signedUrl);
-
-                transcribeSocket.onopen = () => {
-                    showStatus("✅ Voice mode activated!", "success");
-                    document.getElementById("startVoice").disabled = true;
-                    document.getElementById("stopVoice").disabled = false;
-                };
-
-                transcribeSocket.onerror = (error) => {
-                    console.error("⚠️ WebSocket Error:", error);
-                    showStatus("❌ WebSocket error!", 'error');
-                };
-
-                transcribeSocket.onmessage = handleTranscribeMessage;
-            } catch (error) {
-                showStatus("Error accessing microphone: " + error.message, 'error');
+        async function submitPost() {
+            const content = document.getElementById("new-post").value.trim();
+            if (!content) {
+                showStatus("Post cannot be empty!", 'error');
+                return;
             }
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ content })
+                });
+
+                if (response.ok) {
+                    showStatus("Post stored successfully!");
+                    document.getElementById("new-post").value = "";
+                    await fetchAllPosts();
+                } else {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+            } catch (error) {
+                showStatus("Error posting: " + error.message, 'error');
+            }
+        }
+
+        function showStatus(message, type = 'success') {
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + type;
+        }
+
+        function startVoiceMode() {
+            if (!("webkitSpeechRecognition" in window)) {
+                showStatus("❌ Your browser does not support speech recognition.", 'error');
+                return;
+            }
+
+            showStatus("🎙️ Voice mode activated!", 'success');
+            document.getElementById("startVoice").disabled = true;
+            document.getElementById("stopVoice").disabled = false;
+
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = "en-US";
+
+            recognition.onresult = function(event) {
+                let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+                console.log("Recognized Speech:", lastResult);
+
+                if (lastResult === "next post") {
+                    fetchNextPost();
+                } else if (lastResult === "previous post") {
+                    fetchPreviousPost();
+                } else if (lastResult.startsWith("create post")) {
+                    const postContent = lastResult.replace("create post", "").trim();
+                    if (postContent) {
+                        document.getElementById("new-post").value = postContent;
+                        submitPost();
+                    }
+                } else {
+                    showStatus("Unrecognized command: " + lastResult, 'error');
+                }
+            };
+
+            recognition.onerror = function(event) {
+                console.error("Speech Recognition Error:", event);
+                showStatus("❌ Voice recognition error!", 'error');
+            };
+
+            recognition.onend = function() {
+                showStatus("⛔ Voice mode stopped.", 'error');
+                document.getElementById("startVoice").disabled = false;
+                document.getElementById("stopVoice").disabled = true;
+            };
+
+            recognition.start();
         }
 
         function stopVoiceMode() {
-            if (transcribeSocket) transcribeSocket.close();
-            showStatus("⛔ Voice mode stopped", "error");
+            if (recognition) {
+                recognition.stop();
+                showStatus("⛔ Voice mode stopped.", 'error');
+            }
             document.getElementById("startVoice").disabled = false;
             document.getElementById("stopVoice").disabled = true;
-        }
-
-        async function handleTranscribeMessage(event) {
-            if (event.data instanceof Blob) {
-                const text = await event.data.text();
-
-                console.log("Received Transcribe Data:", text);
-
-                if (text.trim().startsWith("{") || text.trim().startsWith("[")) {
-                    try {
-                        const message = JSON.parse(text);
-
-                        if (message.Results && message.Results.length > 0) {
-                            const transcript = message.Results[0].Alternatives[0].Transcript.trim().toLowerCase();
-                            console.log("Recognized Speech:", transcript);
-
-                            if (transcript === "next post") {
-                                fetchNextPost();
-                            } else if (transcript === "previous post") {
-                                fetchPreviousPost();
-                            } else if (transcript.startsWith("create post")) {
-                                const postContent = transcript.replace("create post", "").trim();
-                                if (postContent) {
-                                    document.getElementById("new-post").value = postContent;
-                                    submitPost();
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.error("🚨 Invalid JSON from Transcribe:", text);
-                    }
-                }
-            }
-        }
-
-        async function getSignedTranscribeUrl() {
-            await initializeAWS();
-            const credentials = AWS.config.credentials;
-            const endpoint = `transcribestreaming.${region}.amazonaws.com:8443`;
-            const queryString = `X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId)}`;
-            
-            return `wss://${endpoint}/stream-transcription-websocket?${queryString}`;
         }
 
         fetchAllPosts();
