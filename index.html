@@ -108,10 +108,35 @@
             const kService = sign(kRegion, 'transcribe');
             const kSigning = sign(kService, 'aws4_request');
 
-            const canonicalQuerystring = `X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId + '/' + credentialScope)}&X-Amz-Date=${requestDate}&X-Amz-Security-Token=${encodeURIComponent(credentials.sessionToken)}&language-code=en-US&media-encoding=pcm&sample-rate=16000`;
+            const canonicalQuerystring = [
+                `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
+                `X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId + '/' + credentialScope)}`,
+                `X-Amz-Date=${requestDate}`,
+                `X-Amz-Security-Token=${encodeURIComponent(credentials.sessionToken)}`,
+                `X-Amz-SignedHeaders=host`,  // 🔥 Required for AWS Signature v4
+                `language-code=en-US`,
+                `media-encoding=pcm`,
+                `sample-rate=16000`
+            ].join('&');
 
-            const stringToSign = `AWS4-HMAC-SHA256\n${requestDate}\n${credentialScope}\n${CryptoJS.SHA256(canonicalQuerystring)}`;
-            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString();
+            const canonicalRequest = [
+                'GET',
+                '/stream-transcription-websocket',
+                canonicalQuerystring,
+                'host:' + endpoint,
+                '',
+                'host',
+                'UNSIGNED-PAYLOAD'
+            ].join('\n');
+
+            const stringToSign = [
+                'AWS4-HMAC-SHA256',
+                requestDate,
+                credentialScope,
+                CryptoJS.SHA256(canonicalRequest)
+            ].join('\n');
+
+            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString(CryptoJS.enc.Hex);
 
             return `wss://${endpoint}/stream-transcription-websocket?${canonicalQuerystring}&X-Amz-Signature=${signature}`;
         }
@@ -179,7 +204,6 @@
         }
 
         function stopVoiceMode() {
-            isRecording = false;
             if (transcribeSocket) transcribeSocket.close();
             showStatus("⛔ Voice mode stopped");
         }
