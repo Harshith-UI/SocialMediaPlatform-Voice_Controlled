@@ -38,6 +38,7 @@
         let posts = [];
         let currentIndex = 0;
         let transcribeSocket = null;
+        let isRecording = false;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
         const region = "us-east-1";
         const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a";
@@ -90,75 +91,18 @@
             }
         }
 
-        async function getSignedTranscribeUrl() {
-            await initializeAWS();
-            const credentials = AWS.config.credentials;
-            const endpoint = `transcribestreaming.${region}.amazonaws.com:8443`;
-            const service = "transcribe";
-            const date = new Date();
-            const requestDate = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
-            const dateStamp = requestDate.slice(0, 8);
-            const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-
-            const queryString = {
-                "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
-                "X-Amz-Credential": encodeURIComponent(`${credentials.accessKeyId}/${credentialScope}`),
-                "X-Amz-Date": requestDate,
-                "X-Amz-Expires": "300",
-                "X-Amz-Security-Token": encodeURIComponent(credentials.sessionToken),
-                "X-Amz-SignedHeaders": "host",
-                "language-code": "en-US",
-                "media-encoding": "pcm",
-                "sample-rate": "16000"
-            };
-
-            const canonicalQueryString = Object.entries(queryString)
-                .map(([key, value]) => `${key}=${value}`)
-                .sort()
-                .join("&");
-
-            const canonicalRequest = [
-                "GET",
-                "/stream-transcription-websocket",
-                canonicalQueryString,
-                `host:${endpoint}`,
-                "",
-                "host",
-                "UNSIGNED-PAYLOAD"
-            ].join("\n");
-
-            const stringToSign = [
-                "AWS4-HMAC-SHA256",
-                requestDate,
-                credentialScope,
-                CryptoJS.SHA256(canonicalRequest).toString()
-            ].join("\n");
-
-            function sign(key, msg) {
-                return CryptoJS.HmacSHA256(msg, key);
-            }
-
-            const kDate = sign(`AWS4${credentials.secretAccessKey}`, dateStamp);
-            const kRegion = sign(kDate, region);
-            const kService = sign(kRegion, service);
-            const kSigning = sign(kService, "aws4_request");
-            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString(CryptoJS.enc.Hex);
-
-            return `wss://${endpoint}/stream-transcription-websocket?${canonicalQueryString}&X-Amz-Signature=${signature}`;
-        }
-
         async function startVoiceMode() {
             try {
                 showStatus("Requesting microphone permission...");
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                stream.getTracks().forEach(track => track.stop());
+                stream.getTracks().forEach(track => track.stop()); // Release mic after checking
 
                 showStatus("Starting voice mode...");
                 const signedUrl = await getSignedTranscribeUrl();
                 transcribeSocket = new WebSocket(signedUrl);
 
                 transcribeSocket.onopen = () => {
-                    showStatus("✅ Voice mode activated!");
+                    showStatus("✅ Voice mode activated!", "success");
                     document.getElementById("startVoice").disabled = true;
                     document.getElementById("stopVoice").disabled = false;
                 };
@@ -172,6 +116,13 @@
             } catch (error) {
                 showStatus("Error accessing microphone: " + error.message, 'error');
             }
+        }
+
+        function stopVoiceMode() {
+            if (transcribeSocket) transcribeSocket.close();
+            showStatus("⛔ Voice mode stopped", "error");
+            document.getElementById("startVoice").disabled = false;
+            document.getElementById("stopVoice").disabled = true;
         }
 
         async function handleTranscribeMessage(event) {
@@ -205,6 +156,15 @@
                     }
                 }
             }
+        }
+
+        async function getSignedTranscribeUrl() {
+            await initializeAWS();
+            const credentials = AWS.config.credentials;
+            const endpoint = `transcribestreaming.${region}.amazonaws.com:8443`;
+            const queryString = `X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(credentials.accessKeyId)}`;
+            
+            return `wss://${endpoint}/stream-transcription-websocket?${queryString}`;
         }
 
         fetchAllPosts();
