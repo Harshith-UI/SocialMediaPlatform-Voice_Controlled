@@ -6,7 +6,7 @@
     <title>Voice-Powered Social Media</title>
     <link rel="icon" type="image/png" href="favicon.ico">
     <style>
-        .error { display: none; }
+        .error { display: none; } /* ✅ Hides error messages */
         .success { color: green; }
         .status { margin: 10px 0; }
         button { margin: 5px; padding: 8px; }
@@ -39,8 +39,7 @@
         let posts = [];
         let currentIndex = 0;
         let recognition;
-        let isListening = true;
-        let lastCommand = "";
+        let isListening = false; // ✅ Prevents auto-restart conflicts
         let isRecordingPost = false;
         let currentPostContent = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
@@ -122,18 +121,9 @@
             currentPostContent = "";
         }
 
-        function restartRecognition() {
-            setTimeout(() => {
-                if (isListening) {
-                    recognition.start();
-                }
-            }, 500); // ✅ Small delay to prevent rapid restarts
-        }
-
-        function startAlwaysOnVoiceMode() {
+        function startVoiceRecognition() {
             if (!("webkitSpeechRecognition" in window)) return;
 
-            isListening = true;
             recognition = new webkitSpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = false;
@@ -153,35 +143,34 @@
                 } else {
                     if (lastResult === "next") {
                         fetchNextPost();
-                        restartRecognition(); // ✅ Ensures continuous "Next" recognition
                     } else if (lastResult === "go back" || lastResult === "previous") {
                         fetchPreviousPost();
-                        restartRecognition();
                     } else if (lastResult === "create post") {
                         startRecordingPost();
-                        restartRecognition();
                     }
                 }
-
-                lastCommand = lastResult;
             };
 
             recognition.onerror = function(event) {
                 console.error("Speech Recognition Error:", event);
-                if (isRecordingPost) {
-                    stopRecordingPost();
-                }
-                restartRecognition();
             };
 
             recognition.onend = function() {
                 if (isListening) {
                     console.log("Restarting recognition...");
-                    restartRecognition();
+                    recognition.start();
                 }
             };
+        }
 
-            recognition.start();
+        function startAlwaysOnVoiceMode() {
+            if (!recognition) {
+                startVoiceRecognition();
+            }
+            if (!isListening) {
+                isListening = true;
+                recognition.start();
+            }
         }
 
         function stopVoiceMode() {
