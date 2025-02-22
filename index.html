@@ -48,6 +48,7 @@
         let isRecordingPost = false;
         let currentPostContent = "";
         let lastCommandTime = 0;
+        let lastCommand = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -136,8 +137,8 @@
         function handleVoiceCommand(command) {
             const now = Date.now();
             const timeSinceLastCommand = now - lastCommandTime;
-            
-            // **✅ Fix: Cooldown (500ms) to prevent duplicate commands**
+
+            // **✅ Cooldown (500ms) to prevent duplicate commands**
             if (timeSinceLastCommand < 500) {
                 return;
             }
@@ -153,19 +154,21 @@
                     document.getElementById("new-post").value = currentPostContent.trim();
                 }
             } else {
-                switch (command) {
-                    case "next":
-                        fetchNextPost();
-                        break;
-                    case "go back":
-                    case "previous":
-                        fetchPreviousPost();
-                        break;
-                    case "create post":
-                        startRecordingPost();
-                        break;
+                if (command === "next") {
+                    fetchNextPost();
+                    
+                    // **✅ Force restart to fix "next" issue**
+                    if (lastCommand === "next") {
+                        recognition.stop();
+                        setTimeout(() => recognition.start(), 500);
+                    }
+                } else if (command === "go back" || command === "previous") {
+                    fetchPreviousPost();
+                } else if (command === "create post") {
+                    startRecordingPost();
                 }
             }
+            lastCommand = command;
         }
 
         function startVoiceRecognition() {
