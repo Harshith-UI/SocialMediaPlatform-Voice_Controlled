@@ -24,6 +24,7 @@
     <button onclick="stopVoiceMode()">⛔ Stop Voice Mode</button>
 
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.931.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 
     <script>
         let posts = [];
@@ -34,7 +35,6 @@
         const region = "us-east-1"; // AWS Region
         const identityPoolId = "us-east-1:c45054e1-d3ea-4787-bb10-86e496d0057a"; // Replace with your Cognito Identity Pool ID
 
-        // Fetch all posts from API
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
@@ -99,7 +99,6 @@
             }
         }
 
-        // Generate a properly signed Transcribe WebSocket URL
         async function getSignedTranscribeUrl() {
             AWS.config.region = region;
             AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: identityPoolId });
@@ -110,19 +109,28 @@
             const accessKeyId = credentials.accessKeyId;
             const secretAccessKey = credentials.secretAccessKey;
             const sessionToken = credentials.sessionToken;
-
+            
             const service = "transcribe";
+            const endpoint = `transcribestreaming.${region}.amazonaws.com`;
             const requestDate = new Date().toISOString().slice(0, 10).replace(/-/g, "");
             const credentialScope = `${requestDate}/${region}/${service}/aws4_request`;
 
-            // Generate X-Amz-Signature using AWS SDK
-            const signer = new AWS.Signers.V4(new AWS.HttpRequest(new AWS.Endpoint(`transcribestreaming.${region}.amazonaws.com`), region), service);
-            signer.addAuthorization(credentials, new Date());
+            function sign(key, msg) {
+                return CryptoJS.HmacSHA256(msg, key);
+            }
 
-            return `${signer.request.endpoint.href}stream-transcription-websocket?media-encoding=pcm&sample-rate=16000&language-code=en-US&X-Amz-Security-Token=${sessionToken}&X-Amz-Credential=${accessKeyId}/${credentialScope}&X-Amz-Signature=${signer.request.headers.Authorization}`;
+            const kDate = sign("AWS4" + secretAccessKey, requestDate);
+            const kRegion = sign(kDate, region);
+            const kService = sign(kRegion, service);
+            const kSigning = sign(kService, "aws4_request");
+
+            const canonicalQuerystring = `X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(accessKeyId + '/' + credentialScope)}&X-Amz-Date=${requestDate}T000000Z&X-Amz-Security-Token=${encodeURIComponent(sessionToken)}`;
+            const stringToSign = `AWS4-HMAC-SHA256\n${requestDate}T000000Z\n${credentialScope}\n${CryptoJS.SHA256(canonicalQuerystring)}`;
+            const signature = CryptoJS.HmacSHA256(stringToSign, kSigning).toString();
+
+            return `wss://${endpoint}/stream-transcription-websocket?${canonicalQuerystring}&X-Amz-Signature=${signature}&media-encoding=pcm&sample-rate=16000&language-code=en-US`;
         }
 
-        // Start Voice Mode (Amazon Transcribe Streaming)
         async function startVoiceMode() {
             alert("Voice mode activated. Say 'Next post', 'Previous post', or 'Create post [your text]'.");
 
@@ -131,9 +139,9 @@
 
             transcribeSocket = new WebSocket(signedUrl);
 
-            transcribeSocket.onopen = () => console.log("Transcribe WebSocket connected.");
-            transcribeSocket.onclose = () => console.log("Transcribe WebSocket closed.");
-            transcribeSocket.onerror = (error) => console.error("Transcribe WebSocket Error:", error);
+            transcribeSocket.onopen = () => console.log("✅ Transcribe WebSocket connected.");
+            transcribeSocket.onclose = () => console.log("❌ Transcribe WebSocket closed.");
+            transcribeSocket.onerror = (error) => console.error("⚠️ Transcribe WebSocket Error:", error);
 
             transcribeSocket.onmessage = async (event) => {
                 if (event.data instanceof Blob) {
@@ -142,7 +150,7 @@
                             const message = JSON.parse(text);
                             if (message.results && message.results.length > 0) {
                                 const transcript = message.results[0].alternatives[0].transcript.trim().toLowerCase();
-                                console.log("Received transcript:", transcript);
+                                console.log("🗣️ Recognized Speech:", transcript);
 
                                 if (transcript === "next post") {
                                     fetchNextPost();
@@ -157,7 +165,7 @@
                                 }
                             }
                         } catch (error) {
-                            console.error("Error parsing Transcribe response:", error);
+                            console.error("🚨 Error parsing Transcribe response:", error);
                         }
                     });
                 }
@@ -172,7 +180,6 @@
             alert("Voice mode stopped.");
         }
 
-        // Initial load of posts
         fetchAllPosts();
     </script>
 </body>
