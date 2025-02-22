@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice-Powered Social Media</title>
-    <link rel="icon" type="image/png" href="favicon.ico"> <!-- ✅ Favicon Fix -->
+    <link rel="icon" type="image/png" href="favicon.ico">
     <style>
         .error { color: red; }
         .success { color: green; }
@@ -28,14 +28,11 @@
     <textarea id="new-post" placeholder="Write something..."></textarea>
     <button onclick="submitPost()">Post</button>
 
-    <h2>Voice Assistant</h2>
-    <button id="startVoice" onclick="startVoiceMode()">🎙️ Start Voice Mode</button>
-    <button id="stopVoice" onclick="stopVoiceMode()" disabled>⛔ Stop Voice Mode</button>
-
     <script>
         let posts = [];
         let currentIndex = 0;
         let recognition;
+        let isListening = true; // ✅ Keeps voice mode running always
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
         async function fetchAllPosts() {
@@ -113,15 +110,14 @@
             }, 5000);
         }
 
-        function startVoiceMode() {
+        function startAlwaysOnVoiceMode() {
             if (!("webkitSpeechRecognition" in window)) {
                 showStatus("❌ Your browser does not support speech recognition.", 'error');
                 return;
             }
 
-            showStatus("🎙️ Voice mode activated!", 'success');
-            document.getElementById("startVoice").disabled = true;
-            document.getElementById("stopVoice").disabled = false;
+            showStatus("🎙️ Always-On Voice Mode Activated!", 'success');
+            isListening = true; // ✅ Keeps voice mode running
 
             recognition = new webkitSpeechRecognition();
             recognition.continuous = true;
@@ -153,22 +149,27 @@
             };
 
             recognition.onend = function() {
-                showStatus("⛔ Voice mode stopped.", 'error');
-                document.getElementById("startVoice").disabled = false;
-                document.getElementById("stopVoice").disabled = true;
+                if (isListening) {
+                    console.log("Restarting recognition due to inactivity...");
+                    recognition.start(); // ✅ Restart speech recognition automatically
+                }
             };
 
             recognition.start();
         }
 
         function stopVoiceMode() {
+            isListening = false; // ✅ Stops auto-restarting
             if (recognition) {
                 recognition.stop();
                 showStatus("⛔ Voice mode stopped.", 'error');
             }
-            document.getElementById("startVoice").disabled = false;
-            document.getElementById("stopVoice").disabled = true;
         }
+
+        // ✅ Automatically start voice mode on page load
+        window.onload = function() {
+            startAlwaysOnVoiceMode();
+        };
 
         fetchAllPosts();
     </script>
