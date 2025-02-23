@@ -46,14 +46,13 @@
         let posts = [];
         let currentIndex = 0;
         let recognition;
-        let isListening = false;
         let isRecordingPost = false;
         let currentPostContent = "";
         let lastCommandTime = 0;
         let lastCommand = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
-        // ✅ AWS Configuration with Cognito Identity Pool
+        // AWS Configuration with Cognito Identity Pool
         AWS.config.region = "us-east-1";  
         AWS.config.credentials = new AWS.CognitoIdentityCredentials({
             IdentityPoolId: "us-east-1:ea45be0a-cfbf-4d16-b667-11236066cf56"
@@ -144,7 +143,6 @@
             currentPostContent = "";
         }
 
-        // ✅ AWS Polly for Text-to-Speech
         async function readPost() {
             let text = document.getElementById("post-content").innerText.trim();
             if (!text || text === "Loading..." || text === "No posts available!") return;
@@ -219,20 +217,30 @@
 
             recognition.onerror = function(event) {
                 console.error("Speech Recognition Error:", event);
+                if (event.error === 'no-speech' || event.error === 'audio-capture') {
+                    // Restart recognition after error
+                    startContinuousListening();
+                }
             };
 
             recognition.onend = function() {
-                if (isListening) {
-                    setTimeout(() => {
-                        if (!isListening) return;
-                        try {
-                            recognition.start();
-                        } catch (e) {
-                            console.error("Error restarting recognition:", e);
-                        }
-                    }, 500);
-                }
+                // Always restart recognition when it ends
+                startContinuousListening();
             };
+
+            // Start recognition immediately
+            startContinuousListening();
+        }
+
+        function startContinuousListening() {
+            setTimeout(() => {
+                try {
+                    recognition.start();
+                    console.log("Voice recognition started");
+                } catch (e) {
+                    console.error("Error starting recognition:", e);
+                }
+            }, 500);
         }
 
         window.onload = function() {
