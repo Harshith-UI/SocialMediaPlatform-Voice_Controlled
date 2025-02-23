@@ -27,7 +27,7 @@
             border-radius: 5px;
             display: none;
         }
-        /* New styles for the overlay */
+        /* Enhanced styles for the overlay */
         #startup-overlay {
             position: fixed;
             top: 0;
@@ -43,9 +43,31 @@
         }
         #startup-overlay div {
             background-color: white;
-            padding: 20px;
+            padding: 30px;
             border-radius: 10px;
             text-align: center;
+            max-width: 500px;
+            width: 90%;
+        }
+        .command-list {
+            text-align: left;
+            margin: 20px auto;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        .command-list li {
+            margin: 10px 0;
+            padding: 5px 0;
+        }
+        .command-item {
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .click-prompt {
+            margin-top: 20px;
+            font-style: italic;
+            color: #666;
         }
         /* Hide main content initially */
         #main-content {
@@ -54,15 +76,23 @@
     </style>
 </head>
 <body>
-    <!-- New overlay element -->
+    <!-- Enhanced overlay with commands -->
     <div id="startup-overlay">
         <div>
             <h2>🎤 Voice-Powered Social Media</h2>
-            <p>Click anywhere to start using voice features</p>
+            <p>Welcome! This is a voice-controlled social media platform. Here are the available voice commands:</p>
+            <ul class="command-list">
+                <li><span class="command-item">"next"</span> - Move to the next post</li>
+                <li><span class="command-item">"go back"</span> - Return to the previous post</li>
+                <li><span class="command-item">"create post"</span> - Start writing a new post</li>
+                <li><span class="command-item">"stop writing"</span> - Finish and publish your post</li>
+                <li><span class="command-item">"speak"</span> - Read out the current post</li>
+            </ul>
+            <p class="click-prompt">Click anywhere to start using voice features</p>
         </div>
     </div>
 
-    <!-- Wrap main content in a container -->
+    <!-- Main content remains the same -->
     <div id="main-content">
         <h1>Voice-Powered Social Media App 🎤</h1>
         
@@ -85,6 +115,7 @@
     </div>
 
     <script>
+        // The rest of the JavaScript code remains exactly the same as in the previous version
         let posts = [];
         let currentIndex = 0;
         let recognition;
@@ -97,9 +128,8 @@
         let hasUserGesture = false;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
-        // Initialize the app after user gesture
         function initializeApp() {
-            if (hasUserGesture) return; // Prevent multiple initializations
+            if (hasUserGesture) return;
             
             hasUserGesture = true;
             document.getElementById('startup-overlay').style.display = 'none';
@@ -109,10 +139,8 @@
             fetchAllPosts();
         }
 
-        // Add click listener to the overlay
         document.getElementById('startup-overlay').addEventListener('click', initializeApp);
 
-        // Rest of your existing functions remain the same
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
@@ -269,7 +297,7 @@
                         startRecordingPost();
                         restartRecognition();
                         break;
-                    case "read":
+                    case "speak":
                         readCurrentPost();
                         restartRecognition();
                         break;
