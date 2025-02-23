@@ -7,7 +7,6 @@
     <link rel="icon" type="image/png" href="favicon.ico">
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1150.0.min.js"></script>
     <style>
-        /* Previous styles remain the same */
         .error { display: none; }
         .success { color: green; }
         .status { margin: 10px 0; }
@@ -61,7 +60,88 @@
 
         const polly = new AWS.Polly();
 
-        // [Previous functions remain the same until readPost]
+        async function fetchAllPosts() {
+            try {
+                const response = await fetch(apiUrl);
+                const result = await response.json();
+                let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
+
+                if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
+                    posts = data.posts.sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp));
+                    currentIndex = 0;
+                    updatePostDisplay();
+                } else {
+                    document.getElementById("post-content").innerText = "No posts available!";
+                }
+            } catch (error) {
+                console.error("Error fetching posts:", error);
+                document.getElementById("status-message").innerText = "Error loading posts. Please try again.";
+            }
+        }
+
+        function updatePostDisplay() {
+            if (posts[currentIndex]) {
+                document.getElementById("post-content").innerText = posts[currentIndex].content;
+                document.getElementById("current-post-number").innerText = 
+                    `Post ${currentIndex + 1} of ${posts.length}`;
+            } else {
+                document.getElementById("post-content").innerText = "No posts available!";
+                document.getElementById("current-post-number").innerText = "";
+            }
+        }
+
+        function fetchNextPost() {
+            if (currentIndex < posts.length - 1) {
+                currentIndex++;
+                updatePostDisplay();
+            }
+        }
+
+        function fetchPreviousPost() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                updatePostDisplay();
+            }
+        }
+
+        async function submitPost() {
+            const content = document.getElementById("new-post").value.trim();
+            if (!content) return;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ content })
+                });
+
+                if (response.ok) {
+                    document.getElementById("new-post").value = "";
+                    document.getElementById("status-message").innerText = "Post created successfully!";
+                    await fetchAllPosts();
+                }
+            } catch (error) {
+                console.error("Error posting:", error);
+                document.getElementById("status-message").innerText = "Error creating post. Please try again.";
+            }
+        }
+
+        function startRecordingPost() {
+            isRecordingPost = true;
+            currentPostContent = "";
+            document.getElementById("recording-status").style.display = "block";
+            document.getElementById("new-post").value = "";
+        }
+
+        function stopRecordingPost() {
+            isRecordingPost = false;
+            document.getElementById("recording-status").style.display = "none";
+            if (currentPostContent.trim()) {
+                document.getElementById("new-post").value = currentPostContent.trim();
+                submitPost();
+            }
+            currentPostContent = "";
+        }
 
         async function readPost() {
             let text = document.getElementById("post-content").innerText.trim();
@@ -78,9 +158,23 @@
                 const audioUrl = URL.createObjectURL(new Blob([response.AudioStream], { type: "audio/mp3" }));
                 let audio = new Audio(audioUrl);
                 audio.play();
-                restartRecognition(); // Restart recognition after starting to read
+                restartRecognition();
             } catch (error) {
                 console.error("Polly Error:", error);
+            }
+        }
+
+        function restartRecognition() {
+            if (recognition) {
+                recognition.stop();
+                setTimeout(() => {
+                    try {
+                        recognition.start();
+                        console.log("Recognition restarted");
+                    } catch (e) {
+                        console.error("Error restarting recognition:", e);
+                    }
+                }, 200);
             }
         }
 
@@ -128,8 +222,44 @@
             lastCommand = command;
         }
 
-        // [Rest of the functions remain the same]
+        function startVoiceRecognition() {
+            if (!("webkitSpeechRecognition" in window)) {
+                document.getElementById("status-message").innerText = 
+                    "Voice recognition not supported in this browser.";
+                return;
+            }
 
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = "en-US";
+
+            recognition.onresult = function(event) {
+                let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+                handleVoiceCommand(lastResult);
+            };
+
+            recognition.onerror = function(event) {
+                console.error("Speech Recognition Error:", event);
+                restartRecognition();
+            };
+
+            recognition.onend = function() {
+                restartRecognition();
+            };
+
+            try {
+                recognition.start();
+                console.log("Voice recognition started");
+            } catch (e) {
+                console.error("Error starting recognition:", e);
+            }
+        }
+
+        window.onload = function() {
+            startVoiceRecognition();
+            fetchAllPosts();
+        };
     </script>
 </body>
 </html>
