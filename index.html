@@ -51,6 +51,13 @@
         let lastCommand = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
+        // Initialize speech synthesis with a silent utterance
+        function initializeSpeechSynthesis() {
+            let silentUtterance = new SpeechSynthesisUtterance('');
+            silentUtterance.volume = 0;
+            window.speechSynthesis.speak(silentUtterance);
+        }
+
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
@@ -135,10 +142,16 @@
         }
 
         function readPost() {
+            window.speechSynthesis.cancel(); // Cancel any ongoing speech
+            
             let text = document.getElementById("post-content").innerText;
             let speech = new SpeechSynthesisUtterance(text);
-            speech.rate = 1.0; // Adjust speed
-            window.speechSynthesis.speak(speech);
+            speech.rate = 1.0;
+            
+            // Add a small delay before speaking
+            setTimeout(() => {
+                window.speechSynthesis.speak(speech);
+            }, 100);
         }
 
         function stopReading() {
@@ -149,7 +162,6 @@
             const now = Date.now();
             const timeSinceLastCommand = now - lastCommandTime;
 
-            // **✅ Cooldown (500ms) to prevent duplicate commands**
             if (timeSinceLastCommand < 500) {
                 return;
             }
@@ -245,7 +257,9 @@
             document.getElementById("status-message").innerText = "Voice recognition stopped";
         }
 
+        // Initialize everything when the page loads
         window.onload = function() {
+            initializeSpeechSynthesis();
             startAlwaysOnVoiceMode();
             fetchAllPosts();
         };
