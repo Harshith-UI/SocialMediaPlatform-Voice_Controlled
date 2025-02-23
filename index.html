@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice-Powered Social Media</title>
     <link rel="icon" type="image/png" href="favicon.ico">
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1150.0.min.js"></script>
     <style>
         .error { display: none; }
         .success { color: green; }
@@ -35,7 +34,6 @@
     <div>
         <button id="prevButton" onclick="fetchPreviousPost()">Previous Post</button>
         <button id="nextButton" onclick="fetchNextPost()">Next Post</button>
-        <button id="readButton" onclick="readPost()">Read Post</button>
     </div>
 
     <h2>Create a Post</h2>
@@ -50,15 +48,9 @@
         let currentPostContent = "";
         let lastCommandTime = 0;
         let lastCommand = "";
+        let silentAudio = new Audio("https://cdn.freesound.org/previews/426/426788_5121236-lq.mp3");
+
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
-
-        // AWS Configuration
-        AWS.config.region = "us-east-1";  
-        AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-            IdentityPoolId: "us-east-1:ea45be0a-cfbf-4d16-b667-11236066cf56"
-        });
-
-        const polly = new AWS.Polly();
 
         async function fetchAllPosts() {
             try {
@@ -84,6 +76,9 @@
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
                 document.getElementById("current-post-number").innerText = 
                     `Post ${currentIndex + 1} of ${posts.length}`;
+                
+                // 🔥 Automatically read out post when displayed
+                readPost();
             } else {
                 document.getElementById("post-content").innerText = "No posts available!";
                 document.getElementById("current-post-number").innerText = "";
@@ -143,24 +138,26 @@
             currentPostContent = "";
         }
 
-        async function readPost() {
-            let text = document.getElementById("post-content").innerText.trim();
+        function readPost() {
+            let text = document.getElementById("post-content").innerText;
             if (!text || text === "Loading..." || text === "No posts available!") return;
 
-            const params = {
-                Text: text,
-                OutputFormat: "mp3",
-                VoiceId: "Joanna"
-            };
+            let speech = new SpeechSynthesisUtterance(text);
+            let voices = window.speechSynthesis.getVoices();
+            let englishVoice = voices.find(voice => voice.lang.includes('en'));
+            if (englishVoice) {
+                speech.voice = englishVoice;
+            }
+
+            speech.lang = 'en-US';
+            speech.rate = 1.0;
+            speech.pitch = 1.0;
+            speech.volume = 1.0;
 
             try {
-                const response = await polly.synthesizeSpeech(params).promise();
-                const audioUrl = URL.createObjectURL(new Blob([response.AudioStream], { type: "audio/mp3" }));
-                let audio = new Audio(audioUrl);
-                audio.play();
-                restartRecognition();
+                window.speechSynthesis.speak(speech);
             } catch (error) {
-                console.error("Polly Error:", error);
+                console.error("Speech synthesis error:", error);
             }
         }
 
@@ -181,10 +178,7 @@
         function handleVoiceCommand(command) {
             const now = Date.now();
             const timeSinceLastCommand = now - lastCommandTime;
-
-            if (timeSinceLastCommand < 500) {
-                return;
-            }
+            if (timeSinceLastCommand < 500) return;
 
             lastCommandTime = now;
             console.log("Recognized Speech:", command);
@@ -212,13 +206,8 @@
                         startRecordingPost();
                         restartRecognition();
                         break;
-                    case "read post":
-                        readPost();
-                        restartRecognition();
-                        break;
                 }
             }
-            
             lastCommand = command;
         }
 
@@ -256,10 +245,17 @@
             }
         }
 
-        window.onload = function() {
-            startVoiceRecognition();
-            fetchAllPosts();
-        };
+        document.addEventListener("DOMContentLoaded", function() {
+            silentAudio.loop = true;
+            silentAudio.volume = 0.01;
+            silentAudio.play().then(() => {
+                console.log("Silent audio playing - Speech synthesis unlocked!");
+                startVoiceRecognition();
+                fetchAllPosts();
+            }).catch(error => {
+                console.error("Autoplay restriction workaround failed:", error);
+            });
+        });
     </script>
 </body>
 </html>
