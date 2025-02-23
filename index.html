@@ -48,16 +48,14 @@
         let currentPostContent = "";
         let lastCommandTime = 0;
         let lastCommand = "";
-        let silentAudio = new Audio("https://cdn.freesound.org/previews/426/426788_5121236-lq.mp3");
-
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
+        let audioUnlocked = false;
 
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
                 const result = await response.json();
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
-
                 if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
                     posts = data.posts.sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp));
                     currentIndex = 0;
@@ -76,12 +74,7 @@
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
                 document.getElementById("current-post-number").innerText = 
                     `Post ${currentIndex + 1} of ${posts.length}`;
-                
-                // 🔥 Automatically read out post when displayed
                 readPost();
-            } else {
-                document.getElementById("post-content").innerText = "No posts available!";
-                document.getElementById("current-post-number").innerText = "";
             }
         }
 
@@ -99,163 +92,66 @@
             }
         }
 
-        async function submitPost() {
-            const content = document.getElementById("new-post").value.trim();
-            if (!content) return;
-
-            try {
-                const response = await fetch(apiUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ content })
-                });
-
-                if (response.ok) {
-                    document.getElementById("new-post").value = "";
-                    document.getElementById("status-message").innerText = "Post created successfully!";
-                    await fetchAllPosts();
-                }
-            } catch (error) {
-                console.error("Error posting:", error);
-                document.getElementById("status-message").innerText = "Error creating post. Please try again.";
-            }
-        }
-
-        function startRecordingPost() {
-            isRecordingPost = true;
-            currentPostContent = "";
-            document.getElementById("recording-status").style.display = "block";
-            document.getElementById("new-post").value = "";
-        }
-
-        function stopRecordingPost() {
-            isRecordingPost = false;
-            document.getElementById("recording-status").style.display = "none";
-            if (currentPostContent.trim()) {
-                document.getElementById("new-post").value = currentPostContent.trim();
-                submitPost();
-            }
-            currentPostContent = "";
-        }
-
         function readPost() {
             let text = document.getElementById("post-content").innerText;
             if (!text || text === "Loading..." || text === "No posts available!") return;
-
-            let speech = new SpeechSynthesisUtterance(text);
-            let voices = window.speechSynthesis.getVoices();
-            let englishVoice = voices.find(voice => voice.lang.includes('en'));
-            if (englishVoice) {
-                speech.voice = englishVoice;
-            }
-
-            speech.lang = 'en-US';
-            speech.rate = 1.0;
-            speech.pitch = 1.0;
-            speech.volume = 1.0;
-
-            try {
-                window.speechSynthesis.speak(speech);
-            } catch (error) {
-                console.error("Speech synthesis error:", error);
-            }
+            
+            let utterance = new SpeechSynthesisUtterance(text);
+            speechSynthesis.speak(utterance);
         }
 
-        function restartRecognition() {
-            if (recognition) {
-                recognition.stop();
-                setTimeout(() => {
-                    try {
-                        recognition.start();
-                        console.log("Recognition restarted");
-                    } catch (e) {
-                        console.error("Error restarting recognition:", e);
-                    }
-                }, 200);
+        function unlockAudio() {
+            if (!audioUnlocked) {
+                let silence = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAABCxAgAEABAAZGF0YQAAAAA=");
+                silence.play().then(() => {
+                    audioUnlocked = true;
+                    console.log("🔊 Audio unlocked");
+                }).catch(e => console.warn("Audio unlock failed:", e));
             }
         }
 
         function handleVoiceCommand(command) {
             const now = Date.now();
-            const timeSinceLastCommand = now - lastCommandTime;
-            if (timeSinceLastCommand < 500) return;
-
+            if (now - lastCommandTime < 500) return;
             lastCommandTime = now;
             console.log("Recognized Speech:", command);
 
-            if (isRecordingPost) {
-                if (command === "stop writing") {
-                    stopRecordingPost();
-                    restartRecognition();
-                } else {
-                    currentPostContent += " " + command;
-                    document.getElementById("new-post").value = currentPostContent.trim();
-                }
-            } else {
-                switch (command) {
-                    case "next":
-                        fetchNextPost();
-                        restartRecognition();
-                        break;
-                    case "go back":
-                    case "previous":
-                        fetchPreviousPost();
-                        restartRecognition();
-                        break;
-                    case "create post":
-                        startRecordingPost();
-                        restartRecognition();
-                        break;
-                }
+            if (command === "next") {
+                fetchNextPost();
+            } else if (command === "go back" || command === "previous") {
+                fetchPreviousPost();
+            } else if (command === "read post") {
+                readPost();
             }
-            lastCommand = command;
         }
 
         function startVoiceRecognition() {
             if (!("webkitSpeechRecognition" in window)) {
-                document.getElementById("status-message").innerText = 
-                    "Voice recognition not supported in this browser.";
+                document.getElementById("status-message").innerText = "Voice recognition not supported in this browser.";
                 return;
             }
-
             recognition = new webkitSpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = false;
             recognition.lang = "en-US";
-
             recognition.onresult = function(event) {
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 handleVoiceCommand(lastResult);
             };
-
             recognition.onerror = function(event) {
                 console.error("Speech Recognition Error:", event);
-                restartRecognition();
             };
-
             recognition.onend = function() {
-                restartRecognition();
+                setTimeout(() => recognition.start(), 500);
             };
-
-            try {
-                recognition.start();
-                console.log("Voice recognition started");
-            } catch (e) {
-                console.error("Error starting recognition:", e);
-            }
+            recognition.start();
         }
 
-        document.addEventListener("DOMContentLoaded", function() {
-            silentAudio.loop = true;
-            silentAudio.volume = 0.01;
-            silentAudio.play().then(() => {
-                console.log("Silent audio playing - Speech synthesis unlocked!");
-                startVoiceRecognition();
-                fetchAllPosts();
-            }).catch(error => {
-                console.error("Autoplay restriction workaround failed:", error);
-            });
-        });
+        window.onload = function() {
+            unlockAudio();
+            startVoiceRecognition();
+            fetchAllPosts();
+        };
     </script>
 </body>
 </html>
