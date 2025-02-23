@@ -134,6 +134,17 @@
             currentPostContent = "";
         }
 
+        function readPost() {
+            let text = document.getElementById("post-content").innerText;
+            let speech = new SpeechSynthesisUtterance(text);
+            speech.rate = 1.0; // Adjust speed
+            window.speechSynthesis.speak(speech);
+        }
+
+        function stopReading() {
+            window.speechSynthesis.cancel();
+        }
+
         function handleVoiceCommand(command) {
             const now = Date.now();
             const timeSinceLastCommand = now - lastCommandTime;
@@ -156,8 +167,6 @@
             } else {
                 if (command === "next") {
                     fetchNextPost();
-                    
-                    // **✅ Force restart to fix "next" issue**
                     if (lastCommand === "next") {
                         recognition.stop();
                         setTimeout(() => recognition.start(), 500);
@@ -166,6 +175,10 @@
                     fetchPreviousPost();
                 } else if (command === "create post") {
                     startRecordingPost();
+                } else if (command === "read post") {
+                    readPost();
+                } else if (command === "stop reading") {
+                    stopReading();
                 }
             }
             lastCommand = command;
