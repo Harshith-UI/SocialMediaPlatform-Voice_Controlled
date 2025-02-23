@@ -51,13 +51,6 @@
         let lastCommand = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
-        // Initialize speech synthesis with a silent utterance
-        function initializeSpeechSynthesis() {
-            let silentUtterance = new SpeechSynthesisUtterance('');
-            silentUtterance.volume = 0;
-            window.speechSynthesis.speak(silentUtterance);
-        }
-
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
@@ -142,16 +135,32 @@
         }
 
         function readPost() {
-            window.speechSynthesis.cancel(); // Cancel any ongoing speech
-            
             let text = document.getElementById("post-content").innerText;
-            let speech = new SpeechSynthesisUtterance(text);
-            speech.rate = 1.0;
             
-            // Add a small delay before speaking
-            setTimeout(() => {
+            if (!text || text === "Loading..." || text === "No posts available!") {
+                return;
+            }
+
+            window.speechSynthesis.cancel();
+
+            let speech = new SpeechSynthesisUtterance(text);
+            
+            let voices = window.speechSynthesis.getVoices();
+            let englishVoice = voices.find(voice => voice.lang.includes('en'));
+            if (englishVoice) {
+                speech.voice = englishVoice;
+            }
+
+            speech.lang = 'en-US';
+            speech.rate = 1.0;
+            speech.pitch = 1.0;
+            speech.volume = 1.0;
+
+            try {
                 window.speechSynthesis.speak(speech);
-            }, 100);
+            } catch (error) {
+                console.error("Speech synthesis error:", error);
+            }
         }
 
         function stopReading() {
@@ -257,12 +266,21 @@
             document.getElementById("status-message").innerText = "Voice recognition stopped";
         }
 
-        // Initialize everything when the page loads
-        window.onload = function() {
-            initializeSpeechSynthesis();
+        // Load voice recognition on page load
+        document.addEventListener('DOMContentLoaded', function() {
             startAlwaysOnVoiceMode();
             fetchAllPosts();
-        };
+            
+            // Initialize voices (this helps with voice availability)
+            window.speechSynthesis.getVoices();
+        });
+
+        // Ensure voices are loaded
+        if (window.speechSynthesis) {
+            window.speechSynthesis.onvoiceschanged = function() {
+                window.speechSynthesis.getVoices();
+            };
+        }
     </script>
 </body>
 </html>
