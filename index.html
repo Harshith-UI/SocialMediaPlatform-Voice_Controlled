@@ -11,26 +11,17 @@
         .status { margin: 10px 0; }
         button { margin: 5px; padding: 8px; }
         textarea { width: 100%; min-height: 100px; margin: 10px 0; }
-        .recording { 
-            background-color: #ffecec;
-            padding: 10px;
-            border-radius: 5px;
-            display: none;
-        }
-        #current-post-number {
-            margin: 10px 0;
-            font-style: italic;
-        }
-        .reading {
-            background-color: #e8f5e9;
-            padding: 10px;
-            border-radius: 5px;
-            display: none;
-        }
+        .recording { background-color: #ffecec; padding: 10px; border-radius: 5px; display: none; }
+        #current-post-number { margin: 10px 0; font-style: italic; }
+        .reading { background-color: #e8f5e9; padding: 10px; border-radius: 5px; display: none; }
     </style>
 </head>
 <body>
     <h1>Voice-Powered Social Media App 🎤</h1>
+    
+    <audio id="silent-audio" autoplay>
+        <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=" type="audio/wav">
+    </audio>
     
     <div id="status-message" class="status"></div>
     <div id="recording-status" class="recording">Recording post... Say "stop writing" when finished.</div>
@@ -41,8 +32,6 @@
     <div>
         <button id="prevButton" onclick="fetchPreviousPost()">Previous Post</button>
         <button id="nextButton" onclick="fetchNextPost()">Next Post</button>
-        <button id="readButton" onclick="readCurrentPost()">Read Post</button>
-        <button id="stopReadingButton" onclick="stopReading()">Stop Reading</button>
     </div>
 
     <h2>Create a Post</h2>
@@ -61,6 +50,15 @@
         let isReading = false;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
 
+        function unlockAudio() {
+            const silentAudio = document.getElementById("silent-audio");
+            silentAudio.play().then(() => {
+                console.log("Autoplay unlocked");
+            }).catch(error => {
+                console.warn("Autoplay restriction still active", error);
+            });
+        }
+
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
@@ -76,18 +74,15 @@
                 }
             } catch (error) {
                 console.error("Error fetching posts:", error);
-                document.getElementById("status-message").innerText = "Error loading posts. Please try again.";
             }
         }
 
         function updatePostDisplay() {
             if (posts[currentIndex]) {
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
-                document.getElementById("current-post-number").innerText = 
-                    `Post ${currentIndex + 1} of ${posts.length}`;
+                document.getElementById("current-post-number").innerText = `Post ${currentIndex + 1} of ${posts.length}`;
             } else {
                 document.getElementById("post-content").innerText = "No posts available!";
-                document.getElementById("current-post-number").innerText = "";
             }
         }
 
@@ -109,7 +104,6 @@
 
         function readCurrentPost() {
             if (!posts[currentIndex]) return;
-            
             stopReading();
             isReading = true;
             document.getElementById("reading-status").style.display = "block";
@@ -130,111 +124,9 @@
             }
         }
 
-        async function submitPost() {
-            const content = document.getElementById("new-post").value.trim();
-            if (!content) return;
-
-            try {
-                const response = await fetch(apiUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ content })
-                });
-
-                if (response.ok) {
-                    document.getElementById("new-post").value = "";
-                    document.getElementById("status-message").innerText = "Post created successfully!";
-                    await fetchAllPosts();
-                }
-            } catch (error) {
-                console.error("Error posting:", error);
-                document.getElementById("status-message").innerText = "Error creating post. Please try again.";
-            }
-        }
-
-        function startRecordingPost() {
-            isRecordingPost = true;
-            currentPostContent = "";
-            document.getElementById("recording-status").style.display = "block";
-            document.getElementById("new-post").value = "";
-        }
-
-        function stopRecordingPost() {
-            isRecordingPost = false;
-            document.getElementById("recording-status").style.display = "none";
-            if (currentPostContent.trim()) {
-                document.getElementById("new-post").value = currentPostContent.trim();
-                submitPost();
-            }
-            currentPostContent = "";
-        }
-
-        function restartRecognition() {
-            if (recognition) {
-                recognition.stop();
-                setTimeout(() => {
-                    try {
-                        recognition.start();
-                        console.log("Recognition restarted");
-                    } catch (e) {
-                        console.error("Error restarting recognition:", e);
-                    }
-                }, 200);
-            }
-        }
-
-        function handleVoiceCommand(command) {
-            const now = Date.now();
-            const timeSinceLastCommand = now - lastCommandTime;
-
-            if (timeSinceLastCommand < 500) {
-                return;
-            }
-
-            lastCommandTime = now;
-            console.log("Recognized Speech:", command);
-
-            if (isRecordingPost) {
-                if (command === "stop writing") {
-                    stopRecordingPost();
-                    restartRecognition();
-                } else {
-                    currentPostContent += " " + command;
-                    document.getElementById("new-post").value = currentPostContent.trim();
-                }
-            } else {
-                switch (command) {
-                    case "next":
-                        fetchNextPost();
-                        restartRecognition();
-                        break;
-                    case "go back":
-                    case "previous":
-                        fetchPreviousPost();
-                        restartRecognition();
-                        break;
-                    case "create post":
-                        startRecordingPost();
-                        restartRecognition();
-                        break;
-                    case "read":
-                        readCurrentPost();
-                        restartRecognition();
-                        break;
-                    case "stop":
-                        stopReading();
-                        restartRecognition();
-                        break;
-                }
-            }
-            
-            lastCommand = command;
-        }
-
         function startVoiceRecognition() {
             if (!("webkitSpeechRecognition" in window)) {
-                document.getElementById("status-message").innerText = 
-                    "Voice recognition not supported in this browser.";
+                document.getElementById("status-message").innerText = "Voice recognition not supported in this browser.";
                 return;
             }
 
@@ -245,30 +137,28 @@
 
             recognition.onresult = function(event) {
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-                handleVoiceCommand(lastResult);
+                console.log("Recognized Speech:", lastResult);
+                if (lastResult === "read post") {
+                    readCurrentPost();
+                }
             };
 
             recognition.onerror = function(event) {
                 console.error("Speech Recognition Error:", event);
-                restartRecognition();
             };
 
             recognition.onend = function() {
-                restartRecognition();
+                setTimeout(() => recognition.start(), 500);
             };
-
-            try {
-                recognition.start();
-                console.log("Voice recognition started");
-            } catch (e) {
-                console.error("Error starting recognition:", e);
-            }
+            
+            recognition.start();
         }
 
-        window.onload = function() {
-            startVoiceRecognition();
+        document.addEventListener("DOMContentLoaded", function() {
+            unlockAudio();
+            setTimeout(startVoiceRecognition, 1000);
             fetchAllPosts();
-        };
+        });
     </script>
 </body>
 </html>
