@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice-Powered Social Media</title>
     <link rel="icon" type="image/png" href="favicon.ico">
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1150.0.min.js"></script>
     <style>
         .error { display: none; }
         .success { color: green; }
@@ -34,6 +35,7 @@
     <div>
         <button id="prevButton" onclick="fetchPreviousPost()">Previous Post</button>
         <button id="nextButton" onclick="fetchNextPost()">Next Post</button>
+        <button id="readButton" onclick="readPost()">Read Post</button>
     </div>
 
     <h2>Create a Post</h2>
@@ -50,6 +52,14 @@
         let lastCommandTime = 0;
         let lastCommand = "";
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
+
+        // ✅ AWS Configuration with Cognito Identity Pool
+        AWS.config.region = "us-east-1";  
+        AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+            IdentityPoolId: "us-east-1:ea45be0a-cfbf-4d16-b667-11236066cf56"
+        });
+
+        const polly = new AWS.Polly();
 
         async function fetchAllPosts() {
             try {
@@ -134,46 +144,32 @@
             currentPostContent = "";
         }
 
-        function readPost() {
-            let text = document.getElementById("post-content").innerText;
-            
-            if (!text || text === "Loading..." || text === "No posts available!") {
-                return;
-            }
+        // ✅ AWS Polly for Text-to-Speech
+        async function readPost() {
+            let text = document.getElementById("post-content").innerText.trim();
+            if (!text || text === "Loading..." || text === "No posts available!") return;
 
-            window.speechSynthesis.cancel();
-
-            let speech = new SpeechSynthesisUtterance(text);
-            
-            let voices = window.speechSynthesis.getVoices();
-            let englishVoice = voices.find(voice => voice.lang.includes('en'));
-            if (englishVoice) {
-                speech.voice = englishVoice;
-            }
-
-            speech.lang = 'en-US';
-            speech.rate = 1.0;
-            speech.pitch = 1.0;
-            speech.volume = 1.0;
+            const params = {
+                Text: text,
+                OutputFormat: "mp3",
+                VoiceId: "Joanna"
+            };
 
             try {
-                window.speechSynthesis.speak(speech);
+                const response = await polly.synthesizeSpeech(params).promise();
+                const audioUrl = URL.createObjectURL(new Blob([response.AudioStream], { type: "audio/mp3" }));
+                let audio = new Audio(audioUrl);
+                audio.play();
             } catch (error) {
-                console.error("Speech synthesis error:", error);
+                console.error("Polly Error:", error);
             }
-        }
-
-        function stopReading() {
-            window.speechSynthesis.cancel();
         }
 
         function handleVoiceCommand(command) {
             const now = Date.now();
             const timeSinceLastCommand = now - lastCommandTime;
 
-            if (timeSinceLastCommand < 500) {
-                return;
-            }
+            if (timeSinceLastCommand < 500) return;
 
             lastCommandTime = now;
             console.log("Recognized Speech:", command);
@@ -186,23 +182,22 @@
                     document.getElementById("new-post").value = currentPostContent.trim();
                 }
             } else {
-                if (command === "next") {
-                    fetchNextPost();
-                    if (lastCommand === "next") {
-                        recognition.stop();
-                        setTimeout(() => recognition.start(), 500);
-                    }
-                } else if (command === "go back" || command === "previous") {
-                    fetchPreviousPost();
-                } else if (command === "create post") {
-                    startRecordingPost();
-                } else if (command === "read") {
-                    readPost();
-                } else if (command === "stop reading") {
-                    stopReading();
+                switch (command) {
+                    case "next":
+                        fetchNextPost();
+                        break;
+                    case "go back":
+                    case "previous":
+                        fetchPreviousPost();
+                        break;
+                    case "create post":
+                        startRecordingPost();
+                        break;
+                    case "read post":
+                        readPost();
+                        break;
                 }
             }
-            lastCommand = command;
         }
 
         function startVoiceRecognition() {
@@ -240,47 +235,10 @@
             };
         }
 
-        function startAlwaysOnVoiceMode() {
-            if (!recognition) {
-                startVoiceRecognition();
-            }
-            if (!isListening) {
-                isListening = true;
-                try {
-                    recognition.start();
-                    document.getElementById("status-message").innerText = "Voice recognition active";
-                } catch (e) {
-                    console.error("Error starting recognition:", e);
-                }
-            }
-        }
-
-        function stopVoiceMode() {
-            isListening = false;
-            if (recognition) {
-                recognition.stop();
-            }
-            if (isRecordingPost) {
-                stopRecordingPost();
-            }
-            document.getElementById("status-message").innerText = "Voice recognition stopped";
-        }
-
-        // Load voice recognition on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            startAlwaysOnVoiceMode();
+        window.onload = function() {
+            startVoiceRecognition();
             fetchAllPosts();
-            
-            // Initialize voices (this helps with voice availability)
-            window.speechSynthesis.getVoices();
-        });
-
-        // Ensure voices are loaded
-        if (window.speechSynthesis) {
-            window.speechSynthesis.onvoiceschanged = function() {
-                window.speechSynthesis.getVoices();
-            };
-        }
+        };
     </script>
 </body>
 </html>
