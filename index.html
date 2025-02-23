@@ -21,6 +21,12 @@
             margin: 10px 0;
             font-style: italic;
         }
+        .reading {
+            background-color: #e8f5e9;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -28,12 +34,15 @@
     
     <div id="status-message" class="status"></div>
     <div id="recording-status" class="recording">Recording post... Say "stop writing" when finished.</div>
+    <div id="reading-status" class="reading">Reading post...</div>
     <div id="current-post-number"></div>
     <div id="post-content">Loading...</div>
     
     <div>
         <button id="prevButton" onclick="fetchPreviousPost()">Previous Post</button>
         <button id="nextButton" onclick="fetchNextPost()">Next Post</button>
+        <button id="readButton" onclick="readCurrentPost()">Read Post</button>
+        <button id="stopReadingButton" onclick="stopReading()">Stop Reading</button>
     </div>
 
     <h2>Create a Post</h2>
@@ -48,14 +57,16 @@
         let currentPostContent = "";
         let lastCommandTime = 0;
         let lastCommand = "";
+        let speechSynthesis = window.speechSynthesis;
+        let isReading = false;
         const apiUrl = "https://titsyn3g60.execute-api.us-east-1.amazonaws.com/prod/posts";
-        let audioUnlocked = false;
 
         async function fetchAllPosts() {
             try {
                 const response = await fetch(apiUrl);
                 const result = await response.json();
                 let data = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
+
                 if (data && data.posts && Array.isArray(data.posts) && data.posts.length > 0) {
                     posts = data.posts.sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp));
                     currentIndex = 0;
@@ -74,11 +85,14 @@
                 document.getElementById("post-content").innerText = posts[currentIndex].content;
                 document.getElementById("current-post-number").innerText = 
                     `Post ${currentIndex + 1} of ${posts.length}`;
-                readPost();
+            } else {
+                document.getElementById("post-content").innerText = "No posts available!";
+                document.getElementById("current-post-number").innerText = "";
             }
         }
 
         function fetchNextPost() {
+            stopReading();
             if (currentIndex < posts.length - 1) {
                 currentIndex++;
                 updatePostDisplay();
@@ -86,69 +100,172 @@
         }
 
         function fetchPreviousPost() {
+            stopReading();
             if (currentIndex > 0) {
                 currentIndex--;
                 updatePostDisplay();
             }
         }
 
-        function readPost() {
-            let text = document.getElementById("post-content").innerText;
-            if (!text || text === "Loading..." || text === "No posts available!") return;
+        function readCurrentPost() {
+            if (!posts[currentIndex]) return;
             
-            let utterance = new SpeechSynthesisUtterance(text);
+            stopReading();
+            isReading = true;
+            document.getElementById("reading-status").style.display = "block";
+            
+            const utterance = new SpeechSynthesisUtterance(posts[currentIndex].content);
+            utterance.onend = function() {
+                isReading = false;
+                document.getElementById("reading-status").style.display = "none";
+            };
             speechSynthesis.speak(utterance);
         }
 
-        function unlockAudio() {
-            if (!audioUnlocked) {
-                let silence = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAABCxAgAEABAAZGF0YQAAAAA=");
-                silence.play().then(() => {
-                    audioUnlocked = true;
-                    console.log("🔊 Audio unlocked");
-                }).catch(e => console.warn("Audio unlock failed:", e));
+        function stopReading() {
+            if (isReading) {
+                speechSynthesis.cancel();
+                isReading = false;
+                document.getElementById("reading-status").style.display = "none";
+            }
+        }
+
+        async function submitPost() {
+            const content = document.getElementById("new-post").value.trim();
+            if (!content) return;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ content })
+                });
+
+                if (response.ok) {
+                    document.getElementById("new-post").value = "";
+                    document.getElementById("status-message").innerText = "Post created successfully!";
+                    await fetchAllPosts();
+                }
+            } catch (error) {
+                console.error("Error posting:", error);
+                document.getElementById("status-message").innerText = "Error creating post. Please try again.";
+            }
+        }
+
+        function startRecordingPost() {
+            isRecordingPost = true;
+            currentPostContent = "";
+            document.getElementById("recording-status").style.display = "block";
+            document.getElementById("new-post").value = "";
+        }
+
+        function stopRecordingPost() {
+            isRecordingPost = false;
+            document.getElementById("recording-status").style.display = "none";
+            if (currentPostContent.trim()) {
+                document.getElementById("new-post").value = currentPostContent.trim();
+                submitPost();
+            }
+            currentPostContent = "";
+        }
+
+        function restartRecognition() {
+            if (recognition) {
+                recognition.stop();
+                setTimeout(() => {
+                    try {
+                        recognition.start();
+                        console.log("Recognition restarted");
+                    } catch (e) {
+                        console.error("Error restarting recognition:", e);
+                    }
+                }, 200);
             }
         }
 
         function handleVoiceCommand(command) {
             const now = Date.now();
-            if (now - lastCommandTime < 500) return;
+            const timeSinceLastCommand = now - lastCommandTime;
+
+            if (timeSinceLastCommand < 500) {
+                return;
+            }
+
             lastCommandTime = now;
             console.log("Recognized Speech:", command);
 
-            if (command === "next") {
-                fetchNextPost();
-            } else if (command === "go back" || command === "previous") {
-                fetchPreviousPost();
-            } else if (command === "read post") {
-                readPost();
+            if (isRecordingPost) {
+                if (command === "stop writing") {
+                    stopRecordingPost();
+                    restartRecognition();
+                } else {
+                    currentPostContent += " " + command;
+                    document.getElementById("new-post").value = currentPostContent.trim();
+                }
+            } else {
+                switch (command) {
+                    case "next":
+                        fetchNextPost();
+                        restartRecognition();
+                        break;
+                    case "go back":
+                    case "previous":
+                        fetchPreviousPost();
+                        restartRecognition();
+                        break;
+                    case "create post":
+                        startRecordingPost();
+                        restartRecognition();
+                        break;
+                    case "read post":
+                        readCurrentPost();
+                        restartRecognition();
+                        break;
+                    case "stop reading":
+                        stopReading();
+                        restartRecognition();
+                        break;
+                }
             }
+            
+            lastCommand = command;
         }
 
         function startVoiceRecognition() {
             if (!("webkitSpeechRecognition" in window)) {
-                document.getElementById("status-message").innerText = "Voice recognition not supported in this browser.";
+                document.getElementById("status-message").innerText = 
+                    "Voice recognition not supported in this browser.";
                 return;
             }
+
             recognition = new webkitSpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = false;
             recognition.lang = "en-US";
+
             recognition.onresult = function(event) {
                 let lastResult = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 handleVoiceCommand(lastResult);
             };
+
             recognition.onerror = function(event) {
                 console.error("Speech Recognition Error:", event);
+                restartRecognition();
             };
+
             recognition.onend = function() {
-                setTimeout(() => recognition.start(), 500);
+                restartRecognition();
             };
-            recognition.start();
+
+            try {
+                recognition.start();
+                console.log("Voice recognition started");
+            } catch (e) {
+                console.error("Error starting recognition:", e);
+            }
         }
 
         window.onload = function() {
-            unlockAudio();
             startVoiceRecognition();
             fetchAllPosts();
         };
